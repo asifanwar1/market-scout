@@ -1,0 +1,7 @@
+export const BUSINESS_QUERY_KEYS = {
+    BUSINESSES: "BUSINESSES",
+    BUSINESS: "BUSINESS",
+    ASSIGNEES: "ASSIGNEES",
+} as const;
+
+export default BUSINESS_QUERY_KEYS;

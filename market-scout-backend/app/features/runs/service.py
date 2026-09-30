@@ -147,6 +147,13 @@ def _recently_searched(db: Session, plans: list[TaskPlan]) -> set[tuple[str, int
 
 # ---- estimate / create ------------------------------------------------------------
 
+def _too_many_searches_message(count: int) -> str:
+    return (
+        f"That would be {count} searches, and the limit for one run is {settings.RUN_MAX_TASKS}. "
+        "Pick fewer cities, segments or sources."
+    )
+
+
 def estimate_run(db: Session, run_in: RunCreate) -> dict:
     profile, cities, plans = _plan(db, run_in)
     searched = set() if run_in.refresh else _recently_searched(db, plans)
@@ -191,13 +198,11 @@ def estimate_run(db: Session, run_in: RunCreate) -> dict:
     allowed = len(plans) <= settings.RUN_MAX_TASKS
     warnings: list[str] = []
     if not allowed:
-        warnings.append(
-            f"{len(plans)} searches is over the limit of {settings.RUN_MAX_TASKS}. "
-            "Pick fewer cities, segments or sources."
-        )
+        warnings.append(_too_many_searches_message(len(plans)))
     if tasks_skipped:
+        verb = "search was" if tasks_skipped == 1 else "searches were"
         warnings.append(
-            f"{tasks_skipped} searches were completed recently and will be skipped "
+            f"{tasks_skipped} {verb} completed recently and will be skipped "
             "(turn on refresh to repeat them)."
         )
     for entry in by_source:
@@ -231,10 +236,7 @@ def estimate_run(db: Session, run_in: RunCreate) -> dict:
 def create_run(db: Session, run_in: RunCreate, created_by_id: int) -> Run:
     profile, cities, plans = _plan(db, run_in)
     if len(plans) > settings.RUN_MAX_TASKS:
-        raise BadRequestException(
-            f"{len(plans)} searches is over the limit of {settings.RUN_MAX_TASKS}. "
-            "Pick fewer cities, segments or sources."
-        )
+        raise BadRequestException(_too_many_searches_message(len(plans)))
 
     searched = set() if run_in.refresh else _recently_searched(db, plans)
     run = Run(

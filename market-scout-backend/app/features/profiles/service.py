@@ -45,7 +45,21 @@ def _fill_search_term(term: ProfileSearchTerm, term_in: SearchTermCreate, segmen
 
 def _sync_segments(db: Session, profile: Profile, segments_in: list[SegmentUpsert] | list[SegmentCreate]) -> None:
     existing = {segment.id: segment for segment in profile.segments}
-    kept_ids: set[int] = set()
+    wanted_ids = {segment_in.id for segment_in in segments_in if getattr(segment_in, "id", None) is not None}
+
+    unknown = wanted_ids - existing.keys()
+    if unknown:
+        raise BadRequestException(f"Segment {min(unknown)} does not belong to this profile")
+
+    # Deletions are flushed before anything is inserted: the database checks (profile, slug)
+    # uniqueness statement by statement, so a replacement segment reusing the slug of one that
+    # is being dropped would otherwise collide with it.
+    for segment_id, segment in existing.items():
+        if segment_id not in wanted_ids:
+            profile.segments.remove(segment)
+    db.flush()
+    # Removing a segment cascades to its search terms; reload the stale in-memory list.
+    db.expire(profile, ["search_terms"])
 
     for segment_in in segments_in:
         segment_id = getattr(segment_in, "id", None)
@@ -53,46 +67,37 @@ def _sync_segments(db: Session, profile: Profile, segments_in: list[SegmentUpser
             segment = ProfileSegment()
             profile.segments.append(segment)
         else:
-            segment = existing.get(segment_id)
-            if segment is None:
-                raise BadRequestException(f"Segment {segment_id} does not belong to this profile")
-            kept_ids.add(segment_id)
+            segment = existing[segment_id]
         _fill_segment(segment, segment_in)
-
-    for segment_id, segment in existing.items():
-        if segment_id not in kept_ids:
-            profile.segments.remove(segment)
-
     db.flush()
-    # Removing a segment cascades to its search terms; reload the stale in-memory list.
-    db.expire(profile, ["search_terms"])
 
 
 def _sync_search_terms(db: Session, profile: Profile, terms_in: list[SearchTermUpsert] | list[SearchTermCreate]) -> None:
     segments_by_slug = {segment.slug: segment for segment in profile.segments}
     existing = {term.id: term for term in profile.search_terms}
-    kept_ids: set[int] = set()
+    wanted_ids = {term_in.id for term_in in terms_in if getattr(term_in, "id", None) is not None}
 
+    unknown = wanted_ids - existing.keys()
+    if unknown:
+        raise BadRequestException(f"Search term {min(unknown)} does not belong to this profile")
     for term_in in terms_in:
-        segment = segments_by_slug.get(term_in.segment_slug)
-        if segment is None:
+        if term_in.segment_slug not in segments_by_slug:
             raise BadRequestException(f"Unknown segment '{term_in.segment_slug}'")
 
+    # Same reasoning as segments: drop first, flush, then add (terms are unique per segment+text+language).
+    for term_id, term in existing.items():
+        if term_id not in wanted_ids:
+            profile.search_terms.remove(term)
+    db.flush()
+
+    for term_in in terms_in:
         term_id = getattr(term_in, "id", None)
         if term_id is None:
             term = ProfileSearchTerm()
             profile.search_terms.append(term)
         else:
-            term = existing.get(term_id)
-            if term is None:
-                raise BadRequestException(f"Search term {term_id} does not belong to this profile")
-            kept_ids.add(term_id)
-        _fill_search_term(term, term_in, segment)
-
-    for term_id, term in existing.items():
-        if term_id not in kept_ids:
-            profile.search_terms.remove(term)
-
+            term = existing[term_id]
+        _fill_search_term(term, term_in, segments_by_slug[term_in.segment_slug])
     db.flush()
 
 

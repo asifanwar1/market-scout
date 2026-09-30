@@ -290,6 +290,7 @@ def test_repeating_a_run_skips_recent_searches_unless_refreshed(client, admin_us
 
     estimate = client.post("/api/v1/runs/estimate", headers=auth_headers(admin_user), json=payload(world, [lahore])).json()
     assert estimate["tasks_to_run"] == 0 and estimate["tasks_skipped"] == estimate["tasks_total"]
+    assert f"{estimate['tasks_skipped']} searches were completed recently" in estimate["warnings"][0]
 
     refreshed = make_run(client, admin_user, auth_headers, payload(world, [lahore], refresh=True))
     assert refreshed["tasks_skipped"] == 0
@@ -297,6 +298,18 @@ def test_repeating_a_run_skips_recent_searches_unless_refreshed(client, admin_us
     assert len(source.calls) > calls_after_first
     assert db_session.query(Business).count() == 1                     # re-finding it created no duplicate
     assert done.stats["osm"]["new"] == 0
+
+
+def test_estimate_wording_for_exactly_one_recent_search(client, admin_user, auth_headers, world, db_session):
+    lahore = city(db_session, "lahore")
+    body = payload(world, [lahore], segment_slugs=["contractor"])      # one OpenStreetMap search
+    run = make_run(client, admin_user, auth_headers, body)
+    service.execute_run(db_session, run["id"], source_builder=builder(osm=FakeSource("osm", [raw(1)])))
+
+    estimate = client.post("/api/v1/runs/estimate", headers=auth_headers(admin_user), json=body).json()
+
+    assert estimate["tasks_total"] == estimate["tasks_skipped"] == 1
+    assert estimate["warnings"][0].startswith("1 search was completed recently")
 
 
 def test_failed_searches_are_isolated_and_retried_next_time(client, admin_user, auth_headers, world, db_session):

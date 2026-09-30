@@ -19,4 +19,13 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // shadcn primitives export their style variants and hooks next to the component, and the
+    // router module declares its lazy pages beside the router: both are intentional, and
+    // only cost a full reload instead of hot-swapping while editing.
+    files: ['src/components/ui/**', 'src/routes/routes.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

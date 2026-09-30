@@ -190,7 +190,7 @@ def test_update_syncs_segments_by_id_and_cascades_removed_terms(client, created_
     assert set(segments) == {"dealer", "wholesaler"}
     assert segments["dealer"]["id"] == dealer["id"]          # identity preserved
     assert segments["dealer"]["name"] == "Authorised Dealer"
-    assert installer["id"] not in {s["id"] for s in body["segments"]}
+    assert "installer" not in segments                       # (its row id may be reused by SQLite, so check by slug)
     # The installer's term went with it; the dealer's two terms survive.
     assert sorted(t["text"] for t in body["search_terms"]) == ["pump ki dukan", "water pump dealer"]
 
@@ -219,6 +219,32 @@ def test_update_syncs_terms_and_can_target_new_segments(client, created_profile,
     assert terms["submersible pump dealer"]["is_active"] is False
     assert terms["submersible pump dealer"]["osm_filter"] is None    # replaced by the payload's value
     assert terms["pump shop"]["segment_slug"] == "retailer"
+
+
+def test_replacing_segments_and_terms_without_ids_works_even_when_slugs_and_texts_repeat(
+    client, created_profile, admin_user, auth_headers
+):
+    """An id-less item is a new one. A client that lost its ids (a stale form) replaces the
+    segment/term with a fresh copy; the database must not trip over the unique (slug / text)
+    the old copy still held mid-update."""
+    response = client.put(
+        f"/api/v1/profiles/{created_profile['id']}",
+        headers=auth_headers(admin_user),
+        json={
+            "segments": [{"name": "Dealer", "slug": "dealer"}, {"name": "Installer", "slug": "installer"}],
+            "search_terms": [
+                {"text": "water pump dealer", "segment_slug": "dealer"},
+                {"text": "pump installer", "segment_slug": "installer"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [s["slug"] for s in body["segments"]] == ["dealer", "installer"]       # no duplicates left behind
+    assert sorted(t["text"] for t in body["search_terms"]) == ["pump installer", "water pump dealer"]
+    # The replaced terms carry only what was sent: the old term's OSM filter is gone with it.
+    assert all(t["osm_filter"] is None for t in body["search_terms"])
 
 
 def test_update_rejects_items_from_other_profiles_and_unknown_segments(client, created_profile, admin_user, auth_headers):
