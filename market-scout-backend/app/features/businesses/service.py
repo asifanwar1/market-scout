@@ -1,301 +1,359 @@
-"""Turning what a source reported into stored, de-duplicated, classified businesses."""
-from collections import defaultdict
+"""Reading and editing the stored businesses (the leads the sales team works)."""
+import re
 from dataclasses import dataclass
-from datetime import datetime
 
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import Session, defer, joinedload, selectinload
 
-from app.core.scouting.classify import LeadSignals, SegmentRule, classify, score_lead
-from app.core.scouting.dedupe import BusinessKeys, is_same_business
-from app.core.scouting.normalize import (
-    PhoneInfo, extract_phones_from_many, normalize_email, normalize_name, normalize_website,
-)
-from app.core.scouting.types import RawBusiness
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.features.businesses.models import (
-    Business, BusinessClassification, ContactKind, ContactPoint, SourceRecord,
+    Business, BusinessClassification, ContactKind, ContactPoint, LeadStatus, SourceRecord,
 )
+from app.features.businesses.schemas import BulkBusinessUpdate, BusinessSort, BusinessUpdate, SortDirection
+from app.features.compliance import service as compliance_service
+from app.features.geographies import service as geographies_service
+from app.features.geographies.models import Geography
+from app.features.profiles.models import ProfileSegment
+from app.features.users.models import User
 
-# ~330 m: comfortably wider than the engine's match radius, so the SQL prefilter never
-# hides a candidate the precise check would accept.
-_GEO_PREFILTER_DEGREES = 0.003
 _PHONE_KINDS = (ContactKind.PHONE.value, ContactKind.WHATSAPP.value)
-_MATCH_PRIORITY = {"website": 0, "phone": 1, "location": 2}
-_MAX_CATEGORIES = 20
 
 
-@dataclass(frozen=True)
-class ProfileScoring:
-    """Everything needed to classify and score a business against one profile."""
-
-    profile_id: int
-    segment_ids: dict[str, int]
-    segment_rules: list[SegmentRule]
-    weights: dict[str, int]
-
-
-@dataclass(frozen=True)
-class IngestContext:
-    run_id: int | None
-    geography_id: int | None
-    # The segment of the search term that found this business (a hint, not a verdict).
-    hint_segment_slug: str | None
-    now: datetime
-    profile: ProfileScoring
+@dataclass
+class BusinessFilters:
+    profile_id: int | None = None
+    segment: str | None = None
+    # A city, province or the country: provinces/countries mean every city inside.
+    geography_id: int | None = None
+    has_phone: bool | None = None
+    whatsapp_likely: bool | None = None
+    has_email: bool | None = None
+    has_website: bool | None = None
+    status: LeadStatus | None = None
+    assigned_to_id: int | None = None
+    unassigned: bool = False
+    source: str | None = None
+    min_score: int | None = None
+    search: str | None = None
 
 
-@dataclass(frozen=True)
-class IngestOutcome:
-    business: Business
-    created: bool
-    # What the source itself provided, for judging source quality.
-    phone_count: int
-    has_website: bool
-    has_email: bool
+# ---- querying -----------------------------------------------------------------------------
+
+def visible_businesses(db: Session, filters: BusinessFilters):
+    """Businesses that may be shown to sales and match the filters. Also the base for exports
+    and the live sheet, so those can never include someone on the do-not-contact list."""
+    query = db.query(Business).filter(compliance_service.not_blocked_filter())
+    return _apply_filters(db, query, filters)
 
 
-def ingest_business(db: Session, raw: RawBusiness, ctx: IngestContext) -> IngestOutcome:
-    phones = extract_phones_from_many(raw.phones)
-    site = normalize_website(raw.website)
-    emails = list(dict.fromkeys(e for e in (normalize_email(x) for x in raw.emails) if e))
-    keys = BusinessKeys(
-        normalized_name=normalize_name(raw.name),
-        phones=frozenset(phone.e164 for phone in phones),
-        domain=site.domain,
-        latitude=raw.latitude,
-        longitude=raw.longitude,
+def _apply_filters(db: Session, query, f: BusinessFilters):
+    if f.segment and f.profile_id is None:
+        raise BadRequestException("Choose a profile to filter by segment")
+    if f.unassigned and f.assigned_to_id is not None:
+        raise BadRequestException("Filter by assignee or by unassigned, not both")
+
+    if f.profile_id is not None:
+        classified = [BusinessClassification.profile_id == f.profile_id]
+        if f.segment:
+            segment_ids = select(ProfileSegment.id).where(
+                ProfileSegment.profile_id == f.profile_id, ProfileSegment.slug == f.segment
+            )
+            classified.append(BusinessClassification.segment_id.in_(segment_ids))
+        query = query.filter(Business.classifications.any(and_(*classified)))
+
+    if f.min_score is not None:
+        score_conditions = [BusinessClassification.score >= f.min_score]
+        if f.profile_id is not None:
+            score_conditions.append(BusinessClassification.profile_id == f.profile_id)
+        query = query.filter(Business.classifications.any(and_(*score_conditions)))
+
+    if f.geography_id is not None:
+        query = query.filter(Business.geography_id.in_(geographies_service.get_city_ids(db, f.geography_id)))
+
+    query = _tri_state(query, f.has_phone, Business.contact_points.any(ContactPoint.kind.in_(_PHONE_KINDS)))
+    query = _tri_state(
+        query, f.whatsapp_likely,
+        Business.contact_points.any(
+            or_(ContactPoint.whatsapp_likely.is_(True), ContactPoint.kind == ContactKind.WHATSAPP.value)
+        ),
     )
+    query = _tri_state(query, f.has_email, Business.contact_points.any(ContactPoint.kind == ContactKind.EMAIL.value))
+    query = _tri_state(query, f.has_website, Business.website.isnot(None))
 
-    record = (
-        db.query(SourceRecord)
-        .filter(SourceRecord.source_key == raw.source_key, SourceRecord.external_id == raw.external_id)
-        .first()
-    )
-    business = record.business if record else _find_match(db, keys)
-    created = business is None
+    if f.status is not None:
+        query = query.filter(Business.lead_status == f.status.value)
+    if f.assigned_to_id is not None:
+        query = query.filter(Business.assigned_to_id == f.assigned_to_id)
+    if f.unassigned:
+        query = query.filter(Business.assigned_to_id.is_(None))
+    if f.source:
+        query = query.filter(Business.source_records.any(SourceRecord.source_key == f.source))
+    if f.search and f.search.strip():
+        query = query.filter(_search_condition(f.search.strip()))
+    return query
 
-    if business is None:
-        business = Business(
-            name=raw.name.strip(),
-            normalized_name=keys.normalized_name,
-            geography_id=ctx.geography_id,
-            first_seen_at=ctx.now,
-            last_seen_at=ctx.now,
-            categories=[],
+
+def _tri_state(query, wanted: bool | None, condition):
+    if wanted is None:
+        return query
+    return query.filter(condition if wanted else ~condition)
+
+
+def _search_condition(term: str):
+    like = f"%{term}%"
+    conditions = [Business.name.ilike(like), Business.address.ilike(like)]
+
+    # Phones are stored as +92300...; let people type them the way they're written locally.
+    digits = re.sub(r"\D", "", term)
+    if len(digits) >= 4:
+        local = digits.removeprefix("0092").removeprefix("92").lstrip("0") or digits
+        conditions.append(
+            Business.contact_points.any(
+                and_(ContactPoint.kind.in_(_PHONE_KINDS), ContactPoint.value.like(f"%{local}%"))
+            )
         )
-        db.add(business)
-        db.flush()
+    if "@" in term:
+        conditions.append(
+            Business.contact_points.any(
+                and_(ContactPoint.kind == ContactKind.EMAIL.value, ContactPoint.value.ilike(like))
+            )
+        )
+    return or_(*conditions)
 
-    _merge_fields(business, raw, site.url, site.domain, ctx)
-    _store_source_record(db, business, record, raw, ctx)
-    _add_contact_points(db, business, raw.source_key, phones, emails, site.social_platform, site.social_url)
-    db.flush()
-    classify_business(db, business, ctx.profile, ctx.hint_segment_slug)
 
-    return IngestOutcome(
-        business=business,
-        created=created,
-        phone_count=len(phones),
-        has_website=site.url is not None,
-        has_email=bool(emails),
+def _score_subquery(profile_id: int | None):
+    stmt = select(func.coalesce(func.max(BusinessClassification.score), -1)).where(
+        BusinessClassification.business_id == Business.id
     )
+    if profile_id is not None:
+        stmt = stmt.where(BusinessClassification.profile_id == profile_id)
+    return stmt.correlate(Business).scalar_subquery()
 
 
-def add_enrichment_contacts(
+def _order_clauses(sort: BusinessSort | None, direction: SortDirection | None, profile_id: int | None) -> list:
+    sort = sort or (BusinessSort.SCORE if profile_id is not None else BusinessSort.NEWEST)
+    column = {
+        BusinessSort.SCORE: _score_subquery(profile_id),
+        BusinessSort.NEWEST: Business.first_seen_at,
+        BusinessSort.LAST_SEEN: Business.last_seen_at,
+        BusinessSort.NAME: func.lower(Business.name),
+    }[sort]
+    descending = (direction or (SortDirection.ASC if sort == BusinessSort.NAME else SortDirection.DESC)) == SortDirection.DESC
+    return [column.desc() if descending else column.asc(), Business.id.desc() if descending else Business.id.asc()]
+
+
+# ---- list ------------------------------------------------------------------------------------
+
+def get_businesses(
     db: Session,
-    business: Business,
-    *,
-    emails: list[str],
-    phones: list[PhoneInfo],
-    whatsapp: list[str],
-    facebook: str | None,
-    instagram: str | None,
-    source_key: str,
-) -> int:
-    """Attach contacts found on a business's website. Returns how many were new."""
-    added = _add_contact_points(
-        db, business, source_key, phones, emails, None, None,
-        whatsapp=whatsapp, facebook=facebook, instagram=instagram,
-    )
-    db.flush()
-    return added
+    filters: BusinessFilters,
+    page: int = 1,
+    limit: int = 25,
+    sort: BusinessSort | None = None,
+    direction: SortDirection | None = None,
+) -> dict:
+    query = visible_businesses(db, filters)
+    total_count = query.count()
 
-
-def classify_business(db: Session, business: Business, profile: ProfileScoring, hint_slug: str | None) -> None:
-    """Assign (or keep) the business's segment for a profile and recompute its score."""
-    result = classify(business.name, hint_slug, profile.segment_rules)
-    segment_id = profile.segment_ids.get(result.segment_slug) if result.segment_slug else None
-
-    classification = (
-        db.query(BusinessClassification)
-        .filter(BusinessClassification.business_id == business.id, BusinessClassification.profile_id == profile.profile_id)
-        .first()
-    )
-    if classification is None:
-        classification = BusinessClassification(business_id=business.id, profile_id=profile.profile_id, score=0)
-        db.add(classification)
-
-    # A later search only overrides an earlier verdict when the name backs it up.
-    if classification.segment_id is None or result.name_matched:
-        classification.segment_id = segment_id or classification.segment_id
-
-    signals = _contact_signals(db, business)
-    classification.score = score_lead(signals, result.name_matched, profile.weights)
-    # The session doesn't autoflush; make the row visible to whatever queries next.
-    db.flush()
-
-
-def rescore_business(db: Session, business: Business, profile: ProfileScoring) -> None:
-    """Re-run classification for a business already classified under this profile (e.g. after
-    enrichment added an email or WhatsApp number), keeping its current segment as the hint."""
-    slug_by_id = {segment_id: slug for slug, segment_id in profile.segment_ids.items()}
-    existing = (
-        db.query(BusinessClassification.segment_id)
-        .filter(BusinessClassification.business_id == business.id, BusinessClassification.profile_id == profile.profile_id)
-        .first()
-    )
-    hint = slug_by_id.get(existing[0]) if existing else None
-    classify_business(db, business, profile, hint)
-
-
-# ---- internals ---------------------------------------------------------------
-
-def _find_match(db: Session, keys: BusinessKeys) -> Business | None:
-    candidate_ids: set[int] = set()
-
-    if keys.phones:
-        rows = (
-            db.query(ContactPoint.business_id)
-            .filter(ContactPoint.kind.in_(_PHONE_KINDS), ContactPoint.value.in_(keys.phones))
-            .all()
+    businesses = (
+        query.order_by(*_order_clauses(sort, direction, filters.profile_id))
+        .options(
+            selectinload(Business.contact_points),
+            selectinload(Business.classifications),
+            joinedload(Business.geography).joinedload(Geography.parent),
         )
-        candidate_ids.update(row[0] for row in rows)
-    if keys.domain:
-        candidate_ids.update(row[0] for row in db.query(Business.id).filter(Business.website_domain == keys.domain))
-    if keys.latitude is not None and keys.longitude is not None:
-        box = _GEO_PREFILTER_DEGREES
-        rows = db.query(Business.id).filter(
-            Business.latitude.between(keys.latitude - box, keys.latitude + box),
-            Business.longitude.between(keys.longitude - box, keys.longitude + box),
-        )
-        candidate_ids.update(row[0] for row in rows)
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    lookups = _load_lookups(db, businesses)
+    return {"data": [_to_list_item(b, filters.profile_id, lookups) for b in businesses], "count": total_count}
 
-    if not candidate_ids:
+
+@dataclass
+class _Lookups:
+    """Names and source keys for one page of businesses, fetched in a few batched queries
+    rather than per row."""
+
+    users: dict[int, str]
+    segments: dict[int, tuple[str, str]]
+    sources: dict[int, list[str]]
+
+
+def _load_lookups(db: Session, businesses: list[Business], with_sources: bool = True) -> _Lookups:
+    business_ids = [b.id for b in businesses]
+    user_ids = {b.assigned_to_id for b in businesses if b.assigned_to_id is not None}
+    segment_ids = {c.segment_id for b in businesses for c in b.classifications if c.segment_id is not None}
+
+    users = dict(db.query(User.id, User.full_name).filter(User.id.in_(user_ids)).all()) if user_ids else {}
+    segments = (
+        {sid: (slug, name) for sid, slug, name in db.query(ProfileSegment.id, ProfileSegment.slug, ProfileSegment.name)
+         .filter(ProfileSegment.id.in_(segment_ids))}
+        if segment_ids else {}
+    )
+    sources: dict[int, list[str]] = {}
+    if with_sources and business_ids:
+        rows = db.query(SourceRecord.business_id, SourceRecord.source_key).filter(SourceRecord.business_id.in_(business_ids)).distinct()
+        for business_id, source_key in rows:
+            sources.setdefault(business_id, []).append(source_key)
+    return _Lookups(users, segments, {k: sorted(v) for k, v in sources.items()})
+
+
+def _assigned(business: Business, lookups: _Lookups) -> dict | None:
+    if business.assigned_to_id is None:
         return None
-
-    phones_by_business: dict[int, set[str]] = defaultdict(set)
-    for business_id, value in (
-        db.query(ContactPoint.business_id, ContactPoint.value)
-        .filter(ContactPoint.business_id.in_(candidate_ids), ContactPoint.kind.in_(_PHONE_KINDS))
-    ):
-        phones_by_business[business_id].add(value)
-
-    best: tuple[Business, str] | None = None
-    for candidate in db.query(Business).filter(Business.id.in_(candidate_ids)).all():
-        decision = is_same_business(
-            keys,
-            BusinessKeys(
-                candidate.normalized_name,
-                frozenset(phones_by_business[candidate.id]),
-                candidate.website_domain,
-                candidate.latitude,
-                candidate.longitude,
-            ),
-        )
-        if decision.is_match and (best is None or _MATCH_PRIORITY[decision.reason] < _MATCH_PRIORITY[best[1]]):
-            best = (candidate, decision.reason)
-    return best[0] if best else None
+    return {"id": business.assigned_to_id, "full_name": lookups.users.get(business.assigned_to_id, "Unknown user")}
 
 
-def _merge_fields(business: Business, raw: RawBusiness, website_url: str | None, domain: str | None, ctx: IngestContext) -> None:
-    """Fill gaps from this source; never overwrite what is already known."""
-    business.last_seen_at = ctx.now
-    if not business.address and raw.address:
-        business.address = raw.address
-    if business.latitude is None and raw.latitude is not None and raw.longitude is not None:
-        business.latitude, business.longitude = raw.latitude, raw.longitude
-    if not business.website and website_url:
-        business.website, business.website_domain = website_url, domain
-    if business.geography_id is None:
-        business.geography_id = ctx.geography_id
-    # Ratings are only comparable within one source; prefer the one backed by more reviews.
-    if raw.review_count is not None and raw.review_count >= (business.review_count or 0):
-        business.rating, business.review_count = raw.rating, raw.review_count
-    if raw.categories:
-        merged = list(dict.fromkeys([*(business.categories or []), *raw.categories]))
-        business.categories = merged[:_MAX_CATEGORIES]
+def _place(business: Business) -> tuple[str | None, str | None]:
+    city = business.geography
+    province = city.parent if city is not None else None
+    return (city.name if city else None, province.name if province else None)
 
 
-def _store_source_record(db: Session, business: Business, record: SourceRecord | None, raw: RawBusiness, ctx: IngestContext) -> None:
-    if record is None:
-        db.add(
-            SourceRecord(
-                business_id=business.id,
-                run_id=ctx.run_id,
-                source_key=raw.source_key,
-                external_id=raw.external_id,
-                raw_payload=raw.raw,
-                fetched_at=ctx.now,
-            )
-        )
-        return
-    record.run_id = ctx.run_id
-    record.raw_payload = raw.raw
-    record.fetched_at = ctx.now
+def _to_list_item(business: Business, profile_id: int | None, lookups: _Lookups) -> dict:
+    classifications = business.classifications
+    if profile_id is not None:
+        classifications = [c for c in classifications if c.profile_id == profile_id]
+    chosen = max(classifications, key=lambda c: c.score, default=None)
+    segment = lookups.segments.get(chosen.segment_id) if chosen and chosen.segment_id else None
 
+    phones = sorted((c for c in business.contact_points if c.kind in _PHONE_KINDS), key=lambda c: (not c.whatsapp_likely, c.id))
+    emails = sorted((c for c in business.contact_points if c.kind == ContactKind.EMAIL.value), key=lambda c: c.id)
+    city, province = _place(business)
 
-def _add_contact_points(
-    db: Session,
-    business: Business,
-    source_key: str,
-    phones: list[PhoneInfo],
-    emails: list[str],
-    social_platform: str | None,
-    social_url: str | None,
-    *,
-    whatsapp: list[str] | None = None,
-    facebook: str | None = None,
-    instagram: str | None = None,
-) -> int:
-    existing = {
-        (row.kind, row.value)
-        for row in db.query(ContactPoint.kind, ContactPoint.value).filter(ContactPoint.business_id == business.id)
+    return {
+        "id": business.id,
+        "name": business.name,
+        "address": business.address,
+        "city": city,
+        "province": province,
+        "profile_id": chosen.profile_id if chosen else None,
+        "segment_slug": segment[0] if segment else None,
+        "segment_name": segment[1] if segment else None,
+        "score": chosen.score if chosen else None,
+        "lead_status": business.lead_status,
+        "assigned_to": _assigned(business, lookups),
+        "primary_phone": phones[0].value if phones else None,
+        "whatsapp_likely": any(c.whatsapp_likely or c.kind == ContactKind.WHATSAPP.value for c in business.contact_points),
+        "email": emails[0].value if emails else None,
+        "website": business.website,
+        "rating": business.rating,
+        "review_count": business.review_count,
+        "sources": lookups.sources.get(business.id, []),
+        "first_seen_at": business.first_seen_at,
+        "last_seen_at": business.last_seen_at,
     }
-    wanted: list[ContactPoint] = []
-
-    def want(kind: ContactKind, value: str, is_mobile: bool = False, whatsapp_likely: bool = False) -> None:
-        if (kind.value, value) not in existing:
-            existing.add((kind.value, value))
-            wanted.append(
-                ContactPoint(
-                    business_id=business.id, kind=kind.value, value=value,
-                    is_mobile=is_mobile, whatsapp_likely=whatsapp_likely, source_key=source_key,
-                )
-            )
-
-    for phone in phones:
-        # A Pakistani mobile number can be assumed to be on WhatsApp; a landline can't.
-        want(ContactKind.PHONE, phone.e164, is_mobile=phone.is_mobile, whatsapp_likely=phone.is_mobile)
-    for number in whatsapp or []:
-        want(ContactKind.WHATSAPP, number, is_mobile=True, whatsapp_likely=True)
-    for email in emails:
-        want(ContactKind.EMAIL, email)
-    if social_platform and social_url:
-        want(ContactKind(social_platform), social_url)
-    if facebook:
-        want(ContactKind.FACEBOOK, facebook)
-    if instagram:
-        want(ContactKind.INSTAGRAM, instagram)
-
-    db.add_all(wanted)
-    return len(wanted)
 
 
-def _contact_signals(db: Session, business: Business) -> LeadSignals:
-    rows = db.query(ContactPoint.kind, ContactPoint.whatsapp_likely).filter(ContactPoint.business_id == business.id).all()
-    return LeadSignals(
-        has_phone=any(kind in _PHONE_KINDS for kind, _ in rows),
-        has_whatsapp_likely=any(likely or kind == ContactKind.WHATSAPP.value for kind, likely in rows),
-        has_website=bool(business.website),
-        has_email=any(kind == ContactKind.EMAIL.value for kind, _ in rows),
-        review_count=business.review_count,
+# ---- detail / edit --------------------------------------------------------------------------------
+
+def get_business_by_id(db: Session, business_id: int) -> Business:
+    """A business the sales team may see. Someone on the do-not-contact list is treated as
+    not found so they can't be reached by id either."""
+    business = (
+        db.query(Business)
+        .filter(Business.id == business_id, compliance_service.not_blocked_filter())
+        .options(
+            selectinload(Business.contact_points),
+            selectinload(Business.classifications),
+            # The raw payloads are large and only useful for reprocessing.
+            selectinload(Business.source_records).options(defer(SourceRecord.raw_payload)),
+            joinedload(Business.geography).joinedload(Geography.parent),
+        )
+        .first()
     )
+    if business is None:
+        raise NotFoundException("Business not found")
+    return business
+
+
+def get_business_detail(db: Session, business_id: int) -> dict:
+    business = get_business_by_id(db, business_id)
+    lookups = _load_lookups(db, [business], with_sources=False)
+    city, province = _place(business)
+
+    return {
+        "id": business.id,
+        "name": business.name,
+        "address": business.address,
+        "city_id": business.geography_id,
+        "city": city,
+        "province": province,
+        "latitude": business.latitude,
+        "longitude": business.longitude,
+        "website": business.website,
+        "rating": business.rating,
+        "review_count": business.review_count,
+        "categories": business.categories or [],
+        "lead_status": business.lead_status,
+        "assigned_to": _assigned(business, lookups),
+        "notes": business.notes,
+        "classifications": [
+            {
+                "profile_id": c.profile_id,
+                "segment_slug": lookups.segments[c.segment_id][0] if c.segment_id in lookups.segments else None,
+                "segment_name": lookups.segments[c.segment_id][1] if c.segment_id in lookups.segments else None,
+                "score": c.score,
+            }
+            for c in sorted(business.classifications, key=lambda c: -c.score)
+        ],
+        "contacts": sorted(business.contact_points, key=lambda c: (c.kind, c.id)),
+        "sources": sorted(business.source_records, key=lambda r: r.id),
+        "first_seen_at": business.first_seen_at,
+        "last_seen_at": business.last_seen_at,
+        "enriched_at": business.enriched_at,
+        "updated_at": business.updated_at,
+    }
+
+
+def _require_assignable_user(db: Session, user_id: int) -> None:
+    if not db.query(User.id).filter(User.id == user_id, User.is_active.is_(True)).first():
+        raise BadRequestException("That user doesn't exist or is inactive")
+
+
+def update_business(db: Session, business_id: int, update_in: BusinessUpdate) -> dict:
+    business = get_business_by_id(db, business_id)
+    data = update_in.model_dump(exclude_unset=True)
+
+    if "lead_status" in data and data["lead_status"] is None:
+        raise BadRequestException("lead_status can't be empty")
+    if data.get("assigned_to_id") is not None:
+        _require_assignable_user(db, data["assigned_to_id"])
+
+    if "lead_status" in data:
+        business.lead_status = data["lead_status"].value
+    if "assigned_to_id" in data:
+        business.assigned_to_id = data["assigned_to_id"]
+    if "notes" in data:
+        business.notes = (data["notes"] or "").strip() or None
+    db.commit()
+    return get_business_detail(db, business_id)
+
+
+def bulk_update_businesses(db: Session, update_in: BulkBusinessUpdate) -> int:
+    data = update_in.model_dump(exclude_unset=True, exclude={"business_ids"})
+    if "lead_status" in data and data["lead_status"] is None:
+        raise BadRequestException("lead_status can't be empty")
+    if data.get("assigned_to_id") is not None:
+        _require_assignable_user(db, data["assigned_to_id"])
+
+    values = {}
+    if "lead_status" in data:
+        values["lead_status"] = data["lead_status"].value
+    if "assigned_to_id" in data:
+        values["assigned_to_id"] = data["assigned_to_id"]
+
+    # Ids that are unknown or blocked are ignored; the count tells the caller how many changed.
+    updated = (
+        db.query(Business)
+        .filter(Business.id.in_(set(update_in.business_ids)), compliance_service.not_blocked_filter())
+        .update(values, synchronize_session=False)
+    )
+    db.commit()
+    return updated
+
+
+def get_assignable_users(db: Session) -> list[dict]:
+    users = db.query(User.id, User.full_name).filter(User.is_active.is_(True)).order_by(User.full_name, User.id).all()
+    return [{"id": user_id, "full_name": full_name} for user_id, full_name in users]

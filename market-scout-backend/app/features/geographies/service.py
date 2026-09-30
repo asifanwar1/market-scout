@@ -98,6 +98,20 @@ def get_geography_tree(db: Session) -> list[dict]:
     return roots
 
 
+def get_city_ids(db: Session, geography_id: int) -> list[int]:
+    """The city itself, or every city inside a province / country."""
+    geography = get_geography_by_id(db, geography_id)
+    city_ids: list[int] = []
+    frontier = [geography]
+    while frontier:
+        current = frontier.pop()
+        if current.level == GeographyLevel.CITY.value:
+            city_ids.append(current.id)
+        else:
+            frontier.extend(current.children)
+    return city_ids
+
+
 def get_geography_by_id(db: Session, geography_id: int) -> Geography:
     geography = db.query(Geography).filter(Geography.id == geography_id).first()
     if not geography:

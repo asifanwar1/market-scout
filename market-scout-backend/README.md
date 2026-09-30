@@ -73,8 +73,8 @@ The API backend for Market Scout, a reusable business-discovery and market-intel
 
 ## Roles
 
-- **admin** — everything, including managing users, profiles and locations.
-- **sales** — read-only access to profiles and locations (lead access is added as features land).
+- **admin** — everything, including managing users, profiles, locations, sources and runs, and lifting do-not-contact blocks.
+- **sales** — works the leads: list/filter/search them, change status, notes and assignee, mark a business "do not contact". Can read profiles and locations. Can't see or start runs, change sources, or manage users.
 
 ## Profiles and locations
 
@@ -94,6 +94,12 @@ A **run** searches a profile's terms in chosen cities using chosen sources, then
 - Each run stores per-source quality (found / new / merged / with phone / website / email) so you can see whether a paid source is worth it.
 - A search that finished within `RUN_TASK_CACHE_DAYS` is skipped by later runs unless `refresh` is set. A run interrupted by a restart can be resumed.
 
+## Leads and do-not-contact
+
+- **Leads** (`/api/v1/businesses`) — the businesses runs have found. `GET /` filters by profile, segment, location (a city, province or the country), phone / WhatsApp-capable / email / website, status, assignee, source, minimum score, and a text search over name, address, phone (typed any way: `0300…`, `+92 300…`) and email. It sorts by score (default when a profile is chosen), newest, last seen or name. `PATCH /{id}` edits only the sales fields (status, notes, assignee); `POST /bulk-update` changes status/assignee for up to 500 at once.
+- **Score** is the sum of a profile's weights for the signals a lead has (phone, WhatsApp-capable mobile, website, email, reviews, name matches its segment).
+- **Do-not-contact** (`/api/v1/compliance/do-not-contact`, and `POST /businesses/{id}/do-not-contact`) — anyone can record "please stop contacting us" for a business, a phone number or an email; only an admin can lift it. Blocking a business also blocks its phones and emails, so if a later scrape finds the same shop as a new record with the same number, it's refused too. Blocked people are removed from every leads endpoint (a blocked business is "not found"), and refused during runs (counted as `blocked` in the run stats). Exports and the live sheet will use the same filter.
+
 ## Project Structure
 
 ```
@@ -101,7 +107,7 @@ app/
 ├── core/         # Cross-cutting concerns (security, exceptions, rate limiter, crypto)
 │   └── scouting/ # The engine: sources, website enrichment, phone/name normalisation, de-duplication,
 │                 #   classification. Pure Python: no database or web framework.
-├── features/     # Feature modules (auth, users, profiles, geographies, sources, runs, businesses)
+├── features/     # Feature modules (auth, users, profiles, geographies, sources, runs, businesses, compliance)
 │                 #   each with router/service/schemas/models
 ├── models.py     # Imports every ORM model (add new ones here)
 ├── config.py     # App configuration/settings
@@ -120,4 +126,4 @@ tests/            # Test suite
 
 ## Status
 
-In development. Completed: foundation, auth, user management, profiles, locations, seed data, scouting engine, sources, runs. Still to come: the leads API and compliance, then the UI, Sheets sync and insights.
+In development. Completed: foundation, auth, user management, profiles, locations, seed data, scouting engine, sources, runs, leads API, do-not-contact. Still to come: the UI, Sheets sync and export, and insights.

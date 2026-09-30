@@ -15,6 +15,8 @@ from app.features.geographies.router import router as geographies_router
 from app.features.profiles.router import router as profiles_router
 from app.features.sources.router import router as sources_router
 from app.features.runs.router import router as runs_router
+from app.features.businesses.router import router as businesses_router
+from app.features.compliance.router import router as compliance_router
 from app.features.runs import service as runs_service
 from app.features.runs.worker import worker
 
@@ -59,6 +61,8 @@ app.include_router(geographies_router, prefix="/api/v1/geographies", tags=["Geog
 app.include_router(profiles_router, prefix="/api/v1/profiles", tags=["Profiles"])
 app.include_router(sources_router, prefix="/api/v1/sources", tags=["Sources"])
 app.include_router(runs_router, prefix="/api/v1/runs", tags=["Runs"])
+app.include_router(businesses_router, prefix="/api/v1/businesses", tags=["Businesses"])
+app.include_router(compliance_router, prefix="/api/v1/compliance", tags=["Compliance"])
 
 
 @app.get("/")

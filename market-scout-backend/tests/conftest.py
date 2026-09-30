@@ -102,6 +102,77 @@ def auth_headers():
 
 
 @pytest.fixture()
+def seeded_profile(db_session):
+    """Pakistan's cities and the solar profile, loaded the way `python -m scripts.seed` does."""
+    from app.features.profiles.models import Profile
+    from scripts.seed import seed_geographies, seed_solar_profile
+
+    seed_geographies(db_session)
+    seed_solar_profile(db_session)
+    return db_session.query(Profile).filter_by(slug="solar-inverters-batteries").one()
+
+
+@pytest.fixture()
+def make_business(db_session, seeded_profile):
+    """Build a stored lead by pushing a raw record through the real ingest path."""
+    import itertools
+    from datetime import datetime, timezone
+
+    from app.core.scouting.types import RawBusiness
+    from app.features.businesses.ingest import IngestContext, ingest_business
+    from app.features.geographies.models import Geography
+    from app.features.runs.service import _profile_scoring
+
+    counter = itertools.count(1)
+    scoring = _profile_scoring(seeded_profile)
+
+    def _make(
+        name: str = "Solar Shop",
+        *,
+        city: str = "lahore",
+        hint: str | None = "dealer",
+        phones=(),
+        emails=(),
+        website: str | None = None,
+        address: str | None = None,
+        rating: float | None = None,
+        review_count: int | None = None,
+        source: str = "osm",
+        categories=(),
+        now: datetime | None = None,
+    ):
+        n = next(counter)
+        place = db_session.query(Geography).filter_by(slug=city).one()
+        raw = RawBusiness(
+            source_key=source,
+            external_id=f"{source}/{n}",
+            name=name,
+            address=address,
+            # ~1 km apart, so two test businesses are never mistaken for the same place.
+            latitude=place.latitude + n * 0.01,
+            longitude=place.longitude + n * 0.01,
+            phones=list(phones),
+            emails=list(emails),
+            website=website,
+            categories=list(categories),
+            rating=rating,
+            review_count=review_count,
+        )
+        context = IngestContext(
+            run_id=None,
+            geography_id=place.id,
+            hint_segment_slug=hint,
+            now=now or datetime.now(timezone.utc),
+            profile=scoring,
+        )
+        outcome = ingest_business(db_session, raw, context)
+        db_session.commit()
+        return outcome.business
+
+    return _make
+
+
+@pytest.fixture()
 def admin_user(make_user):
     return make_user("admin@example.com", role=UserRole.ADMIN, full_name="Admin User")
 

@@ -12,4 +12,5 @@ from app.features.sources.models import DataSource  # noqa: F401
 from app.features.businesses.models import (  # noqa: F401
     Business, ContactPoint, SourceRecord, BusinessClassification,
 )
+from app.features.compliance.models import DoNotContact  # noqa: F401
 from app.features.runs.models import Run, RunTask, run_geographies  # noqa: F401

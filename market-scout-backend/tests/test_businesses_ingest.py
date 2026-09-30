@@ -4,9 +4,9 @@ import pytest
 
 from app.core.scouting.normalize import PhoneInfo
 from app.core.scouting.types import RawBusiness
-from app.features.businesses import service
+from app.features.businesses import ingest as service
 from app.features.businesses.models import Business, BusinessClassification, ContactPoint, SourceRecord
-from app.features.businesses.service import IngestContext
+from app.features.businesses.ingest import IngestContext
 from app.features.geographies.models import Geography
 from app.features.profiles.models import Profile
 from app.features.runs.service import _profile_scoring

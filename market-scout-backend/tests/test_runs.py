@@ -7,7 +7,7 @@ from app.core.scouting.enrichment.website import EnrichmentError, WebsiteContact
 from app.core.scouting.normalize import PhoneInfo
 from app.core.scouting.sources.base import SourceAuthError, SourceError
 from app.core.scouting.types import RawBusiness, SearchResult
-from app.features.businesses import service as businesses_service
+from app.features.businesses import ingest as businesses_ingest
 from app.features.businesses.models import Business, ContactPoint
 from app.features.geographies.models import Geography
 from app.features.profiles.models import Profile
@@ -354,14 +354,14 @@ def test_unexpected_errors_fail_one_task_not_the_run(client, admin_user, auth_he
 
 def test_one_malformed_listing_does_not_lose_the_others(client, admin_user, auth_headers, world, db_session, monkeypatch):
     run = make_run(client, admin_user, auth_headers, payload(world, [city(db_session, "lahore")]))
-    real_ingest = businesses_service.ingest_business
+    real_ingest = businesses_ingest.ingest_business
 
     def picky(db, raw_business, ctx):
         if raw_business.external_id == "osm/2":
             raise ValueError("bad listing")
         return real_ingest(db, raw_business, ctx)
 
-    monkeypatch.setattr(businesses_service, "ingest_business", picky)
+    monkeypatch.setattr(businesses_ingest, "ingest_business", picky)
     finished = service.execute_run(db_session, run["id"], source_builder=builder(osm=FakeSource("osm", [raw(1), raw(2), raw(3)])))
 
     assert finished.status == "completed" and finished.tasks_failed == 0

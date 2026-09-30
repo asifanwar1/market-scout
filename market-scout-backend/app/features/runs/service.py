@@ -18,9 +18,9 @@ from app.core.scouting.sources.google_places import MAX_PAGES
 from app.core.scouting.sources.registry import ENRICHMENT_KEY, KIND_DISCOVERY, get_source_info
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery
 from app.database import SessionLocal
-from app.features.businesses import service as businesses_service
+from app.features.businesses import ingest as businesses_ingest
 from app.features.businesses.models import Business, SourceRecord
-from app.features.businesses.service import IngestContext, ProfileScoring
+from app.features.businesses.ingest import IngestContext, ProfileScoring
 from app.features.geographies.models import Geography, GeographyLevel
 from app.features.profiles.models import Profile, ProfileSearchTerm
 from app.features.profiles.schemas import ScoringConfig
@@ -37,7 +37,7 @@ ENRICHMENT_RECHECK_DAYS = 30
 SourceBuilder = Callable[[Session, list[str]], dict[str, Source]]
 EnricherFactory = Callable[[], WebsiteEnricher]
 
-_SEARCH_STAT_FIELDS = ("tasks_done", "tasks_failed", "found", "new", "merged", "with_phone", "with_website", "with_email", "errors", "requests")
+_SEARCH_STAT_FIELDS = ("tasks_done", "tasks_failed", "found", "new", "merged", "blocked", "with_phone", "with_website", "with_email", "errors", "requests")
 _ENRICH_STAT_FIELDS = ("visited", "with_email", "with_whatsapp", "with_social", "blocked_by_robots", "failed")
 
 
@@ -500,7 +500,7 @@ def _run_task(
     counts = _ingest_results(db, result.businesses, context)
 
     source_stats = stats[task.source_key]
-    for field in ("found", "new", "merged", "with_phone", "with_website", "with_email", "errors"):
+    for field in ("found", "new", "merged", "blocked", "with_phone", "with_website", "with_email", "errors"):
         source_stats[field] += counts[field]
     source_stats["tasks_done"] += 1
     source_stats["requests"] += result.requests_made
@@ -519,15 +519,19 @@ def _run_task(
 
 
 def _ingest_results(db: Session, businesses: list[RawBusiness], context: IngestContext) -> dict[str, int]:
-    counts = {"found": 0, "new": 0, "merged": 0, "with_phone": 0, "with_website": 0, "with_email": 0, "errors": 0}
+    counts = {"found": 0, "new": 0, "merged": 0, "blocked": 0, "with_phone": 0, "with_website": 0, "with_email": 0, "errors": 0}
     for raw in businesses:
         try:
             # A savepoint per record: one malformed listing must not undo the rest.
             with db.begin_nested():
-                outcome = businesses_service.ingest_business(db, raw, context)
+                outcome = businesses_ingest.ingest_business(db, raw, context)
         except Exception:
             logger.exception("Could not store %s/%s", raw.source_key, raw.external_id)
             counts["errors"] += 1
+            continue
+
+        if outcome.blocked:
+            counts["blocked"] += 1
             continue
 
         counts["found"] += 1
@@ -612,13 +616,13 @@ def _enrich_websites(
                 enrich_stats["with_email"] += bool(contacts.emails)
                 enrich_stats["with_whatsapp"] += bool(contacts.whatsapp)
                 enrich_stats["with_social"] += bool(contacts.facebook or contacts.instagram)
-                added = businesses_service.add_enrichment_contacts(
+                added = businesses_ingest.add_enrichment_contacts(
                     db, business,
                     emails=contacts.emails, phones=contacts.phones, whatsapp=contacts.whatsapp,
                     facebook=contacts.facebook, instagram=contacts.instagram, source_key=ENRICHMENT_KEY,
                 )
                 if added:
-                    businesses_service.rescore_business(db, business, scoring)
+                    businesses_ingest.rescore_business(db, business, scoring)
 
             run.enrich_done += 1
             run.stats = _snapshot(stats)
