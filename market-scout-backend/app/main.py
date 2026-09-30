@@ -1,0 +1,66 @@
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from app.config import settings
+from app.core.limiter import limiter
+from app.features.auth.router import router as auth_router
+from app.features.users.router import router as users_router
+from app.features.geographies.router import router as geographies_router
+from app.features.profiles.router import router as profiles_router
+from app.features.sources.router import router as sources_router
+from app.features.runs.router import router as runs_router
+from app.features.runs import service as runs_service
+from app.features.runs.worker import worker
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if settings.RUN_WORKER_ENABLED:
+        runs_service.start_worker()
+    yield
+    worker.stop()
+
+
+app = FastAPI(title="Market Scout API", version="0.1.0", lifespan=lifespan)
+
+# Rate-limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# Added last so it's outermost -- otherwise a 429 from SlowAPIMiddleware never
+# passes back through CORSMiddleware and browser clients can't read the response.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception while processing %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(users_router, prefix="/api/v1/users", tags=["Users"])
+app.include_router(geographies_router, prefix="/api/v1/geographies", tags=["Geographies"])
+app.include_router(profiles_router, prefix="/api/v1/profiles", tags=["Profiles"])
+app.include_router(sources_router, prefix="/api/v1/sources", tags=["Sources"])
+app.include_router(runs_router, prefix="/api/v1/runs", tags=["Runs"])
+
+
+@app.get("/")
+def health_check():
+    return {"status": "ok", "message": "Market Scout API is running"}

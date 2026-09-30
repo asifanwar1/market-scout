@@ -1,0 +1,241 @@
+"""Pull public contact details (email, phone, WhatsApp, social pages) from a business's own
+website. Polite by design: honours robots.txt, fetches at most two small pages, and refuses
+to touch anything that isn't on the public internet (URLs come from scraped data, so they
+are untrusted -- without the guard a listing pointing at http://localhost could probe the
+machine this runs on)."""
+import ipaddress
+import socket
+from dataclasses import dataclass, field
+from typing import Callable
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
+from urllib.robotparser import RobotFileParser
+
+import httpx
+from bs4 import BeautifulSoup
+
+from app.core.scouting.normalize import (
+    PhoneInfo, extract_emails, extract_phones, normalize_email, normalize_website,
+)
+
+MAX_PAGE_BYTES = 1_500_000
+# Contact details live near the top of a page; scanning less text also bounds the work.
+MAX_TEXT_CHARS = 300_000
+MAX_REDIRECTS = 3
+MAX_ITEMS = 5
+_SOCIAL_NON_PROFILE_PATHS = ("/sharer", "/share", "/plugins", "/tr", "/dialog", "/login", "/intent")
+
+
+class EnrichmentError(Exception):
+    pass
+
+
+class UnsafeUrlError(EnrichmentError):
+    """The URL points somewhere that isn't the public internet."""
+
+
+@dataclass
+class WebsiteContacts:
+    emails: list[str] = field(default_factory=list)
+    phones: list[PhoneInfo] = field(default_factory=list)
+    whatsapp: list[str] = field(default_factory=list)  # E.164
+    facebook: str | None = None
+    instagram: str | None = None
+    blocked_by_robots: bool = False
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.emails or self.phones or self.whatsapp or self.facebook or self.instagram)
+
+
+def default_resolver(host: str) -> list[str]:
+    try:
+        return sorted({info[4][0] for info in socket.getaddrinfo(host, None)})
+    except socket.gaierror as exc:
+        raise EnrichmentError(f"Could not resolve {host}") from exc
+
+
+class WebsiteEnricher:
+    def __init__(
+        self,
+        user_agent: str,
+        client: httpx.Client | None = None,
+        resolver: Callable[[str], list[str]] = default_resolver,
+    ):
+        self._user_agent = user_agent
+        self._client = client or httpx.Client(timeout=10, follow_redirects=False)
+        self._resolver = resolver
+
+    def enrich(self, url: str) -> WebsiteContacts:
+        site = normalize_website(url)
+        if not site.url:
+            raise EnrichmentError("Not a usable website URL")
+
+        robots = self._load_robots(site.url)
+        if not robots.can_fetch(self._user_agent, site.url):
+            return WebsiteContacts(blocked_by_robots=True)
+
+        html, final_url = self._fetch(site.url)
+        contacts = _extract(html, final_url)
+
+        contact_page = _find_contact_page(html, final_url)
+        if contact_page and robots.can_fetch(self._user_agent, contact_page):
+            try:
+                page_html, page_url = self._fetch(contact_page)
+            except EnrichmentError:
+                pass  # the homepage result is still useful
+            else:
+                _merge(contacts, _extract(page_html, page_url))
+        return contacts
+
+    # ---- fetching ---------------------------------------------------------
+
+    def _assert_public(self, url: str) -> None:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise UnsafeUrlError("Only http(s) URLs are fetched")
+        try:
+            addresses = [str(ipaddress.ip_address(parsed.hostname))]
+        except ValueError:
+            addresses = self._resolver(parsed.hostname)
+        if not addresses:
+            raise EnrichmentError(f"Could not resolve {parsed.hostname}")
+        # Every address must be public: a hostname may resolve to several.
+        if not all(ipaddress.ip_address(address).is_global for address in addresses):
+            raise UnsafeUrlError(f"{parsed.hostname} is not a public address")
+
+    def _fetch(self, url: str) -> tuple[str, str]:
+        current = url
+        for _ in range(MAX_REDIRECTS + 1):
+            self._assert_public(current)
+            try:
+                with self._client.stream("GET", current, headers={"User-Agent": self._user_agent}) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("Location")
+                        if not location:
+                            raise EnrichmentError("Redirect without a location")
+                        current = urljoin(current, location)
+                        continue
+                    if response.status_code != 200:
+                        raise EnrichmentError(f"HTTP {response.status_code}")
+                    if "html" not in response.headers.get("Content-Type", "html").lower():
+                        raise EnrichmentError("Not an HTML page")
+                    body = bytearray()
+                    for chunk in response.iter_bytes():
+                        body.extend(chunk)
+                        if len(body) > MAX_PAGE_BYTES:
+                            break
+                    encoding = response.encoding or "utf-8"
+                    # A single chunk can overshoot the cap, so cut to size explicitly.
+                    return bytes(body[:MAX_PAGE_BYTES]).decode(encoding, errors="replace"), current
+            except httpx.HTTPError as exc:
+                raise EnrichmentError(f"Fetch failed: {exc.__class__.__name__}") from exc
+        raise EnrichmentError("Too many redirects")
+
+    def _load_robots(self, url: str) -> RobotFileParser:
+        parsed = urlparse(url)
+        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+        parser = RobotFileParser()
+        try:
+            text, _ = self._fetch(robots_url)
+        except EnrichmentError:
+            # No robots.txt (or unreachable): nothing forbids us. An unsafe host still
+            # raises from _fetch's guard when the page itself is fetched.
+            parser.parse([])
+            return parser
+        parser.parse(text.splitlines())
+        return parser
+
+
+# ---- HTML extraction -------------------------------------------------------
+
+def _extract(html: str, base_url: str) -> WebsiteContacts:
+    soup = BeautifulSoup(html, "html.parser")
+    contacts = WebsiteContacts()
+
+    for anchor in soup.find_all("a", href=True):
+        href = anchor["href"].strip()
+        lowered = href.lower()
+
+        if lowered.startswith("mailto:"):
+            email = normalize_email(unquote(href))
+            if email:
+                _append_unique(contacts.emails, email)
+        elif lowered.startswith("tel:"):
+            for phone in extract_phones(unquote(href[4:])):
+                _append_phone(contacts.phones, phone)
+        elif "wa.me/" in lowered or "whatsapp.com/send" in lowered or lowered.startswith("whatsapp:"):
+            number = _whatsapp_number(href)
+            if number:
+                _append_unique(contacts.whatsapp, number)
+        else:
+            _collect_social(contacts, urljoin(base_url, href))
+
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    text = soup.get_text(" ")[:MAX_TEXT_CHARS]
+    for email in extract_emails(text):
+        _append_unique(contacts.emails, email)
+    for phone in extract_phones(text):
+        _append_phone(contacts.phones, phone)
+
+    contacts.emails = contacts.emails[:MAX_ITEMS]
+    contacts.phones = contacts.phones[:MAX_ITEMS]
+    contacts.whatsapp = contacts.whatsapp[:MAX_ITEMS]
+    return contacts
+
+
+def _whatsapp_number(href: str) -> str | None:
+    parsed = urlparse(href)
+    digits = parse_qs(parsed.query).get("phone", [""])[0] or parsed.path.strip("/").split("/")[-1]
+    digits = "".join(ch for ch in digits if ch.isdigit())
+    if len(digits) < 8:
+        return None
+    phones = extract_phones("+" + digits)
+    return phones[0].e164 if phones else None
+
+
+def _collect_social(contacts: WebsiteContacts, url: str) -> None:
+    site = normalize_website(url)
+    if not site.social_platform or not site.social_url:
+        return
+    path = urlparse(site.social_url).path
+    if len(path.strip("/")) == 0 or path.lower().startswith(_SOCIAL_NON_PROFILE_PATHS):
+        return
+    if site.social_platform == "facebook" and contacts.facebook is None:
+        contacts.facebook = site.social_url
+    elif site.social_platform == "instagram" and contacts.instagram is None:
+        contacts.instagram = site.social_url
+
+
+def _find_contact_page(html: str, base_url: str) -> str | None:
+    base_host = urlparse(base_url).hostname
+    for anchor in BeautifulSoup(html, "html.parser").find_all("a", href=True):
+        label = f"{anchor.get_text(' ')} {anchor['href']}".lower()
+        if "contact" not in label:
+            continue
+        target = urljoin(base_url, anchor["href"])
+        if urlparse(target).hostname == base_host and target.split("#")[0] != base_url:
+            return target.split("#")[0]
+    return None
+
+
+def _merge(into: WebsiteContacts, extra: WebsiteContacts) -> None:
+    for email in extra.emails:
+        _append_unique(into.emails, email)
+    for phone in extra.phones:
+        _append_phone(into.phones, phone)
+    for number in extra.whatsapp:
+        _append_unique(into.whatsapp, number)
+    into.facebook = into.facebook or extra.facebook
+    into.instagram = into.instagram or extra.instagram
+    into.emails, into.phones, into.whatsapp = into.emails[:MAX_ITEMS], into.phones[:MAX_ITEMS], into.whatsapp[:MAX_ITEMS]
+
+
+def _append_unique(items: list[str], value: str) -> None:
+    if value not in items:
+        items.append(value)
+
+
+def _append_phone(items: list[PhoneInfo], phone: PhoneInfo) -> None:
+    if all(existing.e164 != phone.e164 for existing in items):
+        items.append(phone)
