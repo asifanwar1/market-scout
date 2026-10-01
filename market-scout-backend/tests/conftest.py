@@ -11,9 +11,31 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_DIR}/test.db"
 os.environ["SECRET_KEY"] = "test-secret-key-not-for-production"
 # Tests drive runs directly; a live background thread would race them.
 os.environ["RUN_WORKER_ENABLED"] = "false"
-# Never pick up a real key or contact address from a developer's .env.
-os.environ["GOOGLE_PLACES_API_KEY"] = ""
-os.environ["SCOUT_CONTACT_EMAIL"] = ""
+# Pin every setting the tests rely on, so a developer's own .env (another port, a real key, tuned
+# limits) can never change the results. Environment variables beat .env.
+for name, value in {
+    "GOOGLE_PLACES_API_KEY": "",
+    "SCOUT_CONTACT_EMAIL": "",
+    "GOOGLE_SERVICE_ACCOUNT_JSON": "",
+    "ENCRYPTION_KEY": "",
+    "CORS_ORIGINS": "http://localhost:5173",
+    "LOG_LEVEL": "INFO",
+    "ACCESS_TOKEN_EXPIRE_MINUTES": "30",
+    "REFRESH_TOKEN_EXPIRE_DAYS": "7",
+    "OVERPASS_URL": "https://overpass-api.de/api/interpreter",
+    "OVERPASS_MIN_INTERVAL_SECONDS": "5",
+    "PLACES_COST_PER_REQUEST_USD": "0.035",
+    "RUN_MAX_TASKS": "2000",
+    "RUN_TASK_CACHE_DAYS": "7",
+    "ENRICHMENT_CONCURRENCY": "4",
+    "SHEETS_API_URL": "https://sheets.googleapis.com/v4",
+    "GOOGLE_TOKEN_URL": "https://oauth2.googleapis.com/token",
+}.items():
+    os.environ[name] = value
+# No timers left running after a test; the debounce is tested with its own scheduler.
+os.environ["SHEETS_AUTO_SYNC_DELAY_SECONDS"] = "-1"
+
+from datetime import UTC
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +46,6 @@ from app.database import Base, SessionLocal, engine
 from app.dependencies import get_db
 from app.features.users.models import User, UserRole
 from app.main import app
-
 
 DEFAULT_PASSWORD = "Str0ng!Passw0rd"
 
@@ -116,7 +137,7 @@ def seeded_profile(db_session):
 def make_business(db_session, seeded_profile):
     """Build a stored lead by pushing a raw record through the real ingest path."""
     import itertools
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.core.scouting.types import RawBusiness
     from app.features.businesses.ingest import IngestContext, ingest_business
@@ -162,7 +183,7 @@ def make_business(db_session, seeded_profile):
             run_id=None,
             geography_id=place.id,
             hint_segment_slug=hint,
-            now=now or datetime.now(timezone.utc),
+            now=now or datetime.now(UTC),
             profile=scoring,
         )
         outcome = ingest_business(db_session, raw, context)

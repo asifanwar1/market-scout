@@ -6,3 +6,6 @@ export * from "./services/geographies";
 export * from "./services/sources";
 export * from "./services/users";
 export * from "./services/compliance";
+export * from "./services/exports";
+export * from "./services/sheets";
+export * from "./services/insights";

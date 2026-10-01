@@ -2,7 +2,10 @@ import httpx
 import pytest
 
 from app.core.scouting.sources.base import (
-    SourceRateLimitError, SourceUnavailableError, request_with_retries,
+    SourceAuthError,
+    SourceRateLimitError,
+    SourceUnavailableError,
+    request_with_retries,
 )
 from app.core.scouting.sources.osm import OsmSource, build_overpass_query, parse_elements
 from app.core.scouting.types import SearchArea, SearchQuery
@@ -214,3 +217,18 @@ def test_retry_after_header_is_respected_up_to_a_cap():
     client = httpx.Client(transport=httpx.MockTransport(lambda r: next(responses)))
     request_with_retries(client, "GET", "https://x.test", sleep=sleeps.append)
     assert sleeps == [5.0]
+
+
+@pytest.mark.parametrize("status", [403, 406])
+def test_a_refused_identification_is_explained_and_not_retried(status):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(status)
+
+    source = make_source(handler)
+    with pytest.raises(SourceAuthError, match="SCOUT_CONTACT_EMAIL"):
+        source.search(SearchQuery(text="solar", area=LAHORE, language="en", osm_filter=FILTER))
+
+    assert len(calls) == 1  # retrying the same identification can't succeed

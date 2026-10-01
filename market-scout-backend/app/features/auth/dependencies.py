@@ -16,11 +16,11 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     if not token:
-        raise UnauthorizedException()
+        raise UnauthorizedException() from None
     try:
         payload = decode_token(token)
     except JWTError:
-        raise UnauthorizedException()
+        raise UnauthorizedException() from None
 
     # A refresh token must never be accepted as an access token.
     if payload.get("type") != "access":
@@ -29,11 +29,11 @@ def get_current_user(
     try:
         user_id = int(payload.get("sub"))
     except (TypeError, ValueError):
-        raise UnauthorizedException()
+        raise UnauthorizedException() from None
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user or not user.is_active or payload.get("tv") != user.token_version:
-        raise UnauthorizedException()
+        raise UnauthorizedException() from None
     return user
 
 

@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
 from app.features.geographies.models import GeographyLevel
 
 

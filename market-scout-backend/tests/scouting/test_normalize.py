@@ -9,7 +9,6 @@ from app.core.scouting.normalize import (
     normalize_website,
 )
 
-
 # ---- phones (formats taken from the real OpenStreetMap results) -------------
 
 @pytest.mark.parametrize(

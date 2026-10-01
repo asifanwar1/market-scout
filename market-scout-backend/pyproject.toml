@@ -1,0 +1,29 @@
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+extend-exclude = ["venv", "alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]  # pyflakes, pycodestyle, imports, pyupgrade, bugbear
+ignore = [
+    "UP045",  # keep Optional[X]: the house style (pulse-store) and what our schemas already use
+    "UP042",  # keep (str, Enum): StrEnum formats differently and nothing here needs the change
+]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI reads dependencies from defaults: Depends(...) and Query(...) in signatures.
+"app/**/router.py" = ["B008"]
+"app/**/dependencies.py" = ["B008"]
+"app/dependencies.py" = ["B008"]
+"app/main.py" = ["B008"]
+"tests/**" = ["B008", "E501"]
+"tests/conftest.py" = ["E402"]  # the test environment must be set before the app is imported
+"scripts/**" = ["E402"]  # scripts put the project root on sys.path first
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # Starlette's TestClient still builds on httpx; nothing for us to act on.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:DeprecationWarning",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]

@@ -4,12 +4,14 @@ The web app for Market Scout: the sales team's leads workspace and the admin's t
 
 ## What's in it
 
-- **Leads** (everyone): a filterable, sortable table of the businesses found so far, best first. Filters live in the URL, so a view can be bookmarked or shared. Click a lead for its contacts (call, WhatsApp, email), where it came from, and to record status, notes and who owns it. Select several to assign or change status in bulk. Anyone can mark a business **do not contact**.
+- **Insights** (everyone): headline numbers, leads over time, a city × business-type coverage map, "where to look next" (cities with few or no leads; admins get a **Search here** button that opens a new run with the city chosen), which source is worth it (with estimated cost per lead for paid ones), and businesses whose reviews are growing.
+- **Leads** (everyone): a filterable, sortable table of the businesses found so far, best first. Filters live in the URL, so a view can be bookmarked or shared. Click a lead for its contacts (call, WhatsApp, email), where it came from, and to record status, notes and who owns it. Select several to assign or change status in bulk. **Export CSV** downloads everything the current filters match (do-not-contact people are never included). Anyone can mark a business **do not contact**.
 - **Runs** (admins only): start a search (choose the profile, cities, sources), see an estimate of the searches, time and cost *before* it starts, then watch its progress live. Each finished run shows how complete each source's results were (phone / website / email), which is how you judge whether a paid source is worth it.
 - **Administration** (admins only):
   - **Profiles**: define an industry without touching code: its segments, search terms (including the OpenStreetMap filter for each), and how leads are scored. Editing validates as you type, warns before you leave with unsaved changes, and updates in place so existing leads keep their segment.
   - **Locations**: the provinces and cities a run can search, with each city's centre and radius.
   - **Sources**: switch sources on and off, save the Google Places API key (stored encrypted, never shown again), and test the connection.
+  - **Google Sheet**: connect a Google Sheet that mirrors the leads live (paste a Google service-account key, share the sheet with its address, press Sync now). It refreshes by itself after runs and edits; the sheet is a read-only copy, so share it view-only. The screen walks through the Google setup.
   - **Users**: create accounts and change roles, passwords and access.
 - **Do not contact** (everyone can view and add; only admins can lift a block): a business, phone number or email that asked not to be contacted.
 - Sales accounts see only Leads and Do not contact; the admin routes are guarded too, and the API enforces the same rule.

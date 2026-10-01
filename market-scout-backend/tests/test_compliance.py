@@ -1,3 +1,5 @@
+from datetime import UTC
+
 import pytest
 
 from app.core.scouting.types import RawBusiness, SearchResult
@@ -161,7 +163,8 @@ def test_requires_authentication(client):
 # ---- a re-scrape can't bring a blocked business back ---------------------------------------------------------------------
 
 def context_for(seeded_profile, db_session, city="lahore"):
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from app.features.geographies.models import Geography
     from app.features.runs.service import _profile_scoring
 
@@ -169,7 +172,7 @@ def context_for(seeded_profile, db_session, city="lahore"):
         run_id=None,
         geography_id=db_session.query(Geography).filter_by(slug=city).one().id,
         hint_segment_slug="dealer",
-        now=datetime.now(timezone.utc),
+        now=datetime.now(UTC),
         profile=_profile_scoring(seeded_profile),
     )
 

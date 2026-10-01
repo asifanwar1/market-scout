@@ -5,12 +5,17 @@ only works once every model class has been imported. Entry points that don't go 
 ``app.main`` (Alembic, scripts, a shell) would otherwise fail with "failed to locate a name".
 Add each new model here.
 """
-from app.features.users.models import User  # noqa: F401
-from app.features.geographies.models import Geography  # noqa: F401
-from app.features.profiles.models import Profile, ProfileSegment, ProfileSearchTerm  # noqa: F401
-from app.features.sources.models import DataSource  # noqa: F401
 from app.features.businesses.models import (  # noqa: F401
-    Business, ContactPoint, SourceRecord, BusinessClassification,
+    Business,
+    BusinessClassification,
+    ContactPoint,
+    SourceRecord,
 )
 from app.features.compliance.models import DoNotContact  # noqa: F401
+from app.features.geographies.models import Geography  # noqa: F401
+from app.features.insights.models import BusinessSnapshot  # noqa: F401
+from app.features.profiles.models import Profile, ProfileSearchTerm, ProfileSegment  # noqa: F401
 from app.features.runs.models import Run, RunTask, run_geographies  # noqa: F401
+from app.features.sheets.models import AppSetting  # noqa: F401
+from app.features.sources.models import DataSource  # noqa: F401
+from app.features.users.models import User  # noqa: F401

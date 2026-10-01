@@ -5,8 +5,8 @@ are untrusted -- without the guard a listing pointing at http://localhost could 
 machine this runs on)."""
 import ipaddress
 import socket
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -14,7 +14,11 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.core.scouting.normalize import (
-    PhoneInfo, extract_emails, extract_phones, normalize_email, normalize_website,
+    PhoneInfo,
+    extract_emails,
+    extract_phones,
+    normalize_email,
+    normalize_website,
 )
 
 MAX_PAGE_BYTES = 1_500_000

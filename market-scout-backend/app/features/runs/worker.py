@@ -7,14 +7,14 @@ callers only use ``enqueue``.
 import logging
 import queue
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
 
 class RunWorker:
     def __init__(self) -> None:
-        self._queue: "queue.Queue[int]" = queue.Queue()
+        self._queue: queue.Queue[int] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._executor: Callable[[int], None] | None = None

@@ -1,9 +1,9 @@
 import logging
 import math
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Callable
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -17,16 +17,17 @@ from app.core.scouting.sources.base import Source, SourceAuthError, SourceError
 from app.core.scouting.sources.google_places import MAX_PAGES
 from app.core.scouting.sources.registry import ENRICHMENT_KEY, KIND_DISCOVERY, get_source_info
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery
-from app.database import SessionLocal
+from app.database import WorkerSessionLocal, WriteSessionLocal
 from app.features.businesses import ingest as businesses_ingest
-from app.features.businesses.models import Business, SourceRecord
 from app.features.businesses.ingest import IngestContext, ProfileScoring
+from app.features.businesses.models import Business, SourceRecord
 from app.features.geographies.models import Geography, GeographyLevel
 from app.features.profiles.models import Profile, ProfileSearchTerm
 from app.features.profiles.schemas import ScoringConfig
 from app.features.runs.models import Run, RunStatus, RunTask, TaskStatus
 from app.features.runs.schemas import RunCreate
 from app.features.runs.worker import worker
+from app.features.sheets import service as sheets_service
 from app.features.sources import service as sources_service
 
 logger = logging.getLogger(__name__)
@@ -37,12 +38,15 @@ ENRICHMENT_RECHECK_DAYS = 30
 SourceBuilder = Callable[[Session, list[str]], dict[str, Source]]
 EnricherFactory = Callable[[], WebsiteEnricher]
 
-_SEARCH_STAT_FIELDS = ("tasks_done", "tasks_failed", "found", "new", "merged", "blocked", "with_phone", "with_website", "with_email", "errors", "requests")
+_SEARCH_STAT_FIELDS = (
+    "tasks_done", "tasks_failed", "found", "new", "merged", "blocked",
+    "with_phone", "with_website", "with_email", "errors", "requests",
+)
 _ENRICH_STAT_FIELDS = ("visited", "with_email", "with_whatsapp", "with_social", "blocked_by_robots", "failed")
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ---- planning ------------------------------------------------------------------
@@ -667,7 +671,9 @@ def _finish(db: Session, run: Run, status: RunStatus, error: str | None = None) 
 # ---- process lifecycle -------------------------------------------------------------------
 
 def run_in_new_session(run_id: int) -> None:
-    db = SessionLocal()
+    # A worker session: writes lock up front and loaded objects stay loaded after a commit, so no
+    # transaction is ever left open while a search waits on the network (see app/database.py).
+    db = WorkerSessionLocal()
     try:
         execute_run(db, run_id)
     except Exception:
@@ -678,6 +684,8 @@ def run_in_new_session(run_id: int) -> None:
             _finish(db, run, RunStatus.FAILED, "Unexpected error (see the server log)")
     finally:
         db.close()
+        # Whatever the run found (even a partial run) should reach the live sheet.
+        sheets_service.notify_changed()
 
 
 def recover_interrupted_runs(db: Session) -> list[int]:
@@ -696,9 +704,11 @@ def recover_interrupted_runs(db: Session) -> list[int]:
 
 
 def start_worker() -> None:
-    db = SessionLocal()
+    db = WriteSessionLocal()
     try:
         queued = recover_interrupted_runs(db)
+        # Once, at start-up, so that reading the Sources screen never has to write.
+        sources_service.ensure_sources(db)
     finally:
         db.close()
 

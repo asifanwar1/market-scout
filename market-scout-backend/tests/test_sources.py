@@ -1,3 +1,4 @@
+
 import pytest
 
 from app.config import settings
@@ -171,5 +172,12 @@ def test_build_sources_constructs_real_objects(db_session):
 def test_user_agent_identifies_the_app_and_optionally_a_contact(monkeypatch):
     monkeypatch.setattr(settings, "SCOUT_CONTACT_EMAIL", "")
     assert sources_service.user_agent() == "MarketScout/0.1"
-    monkeypatch.setattr(settings, "SCOUT_CONTACT_EMAIL", "ops@example.com")
-    assert "ops@example.com" in sources_service.user_agent()
+    monkeypatch.setattr(settings, "SCOUT_CONTACT_EMAIL", "ops@solarco.pk")
+    assert sources_service.user_agent() == "MarketScout/0.1 (+mailto:ops@solarco.pk)"
+
+
+@pytest.mark.parametrize("placeholder", ["you@example.com", "a@EXAMPLE.org", "x@mail.example.net", "me@localhost", "a@b.test", "a@b.invalid"])
+def test_a_placeholder_contact_address_is_not_sent(monkeypatch, placeholder):
+    # Overpass answers a placeholder address with "406 Not Acceptable"; leaving it out works.
+    monkeypatch.setattr(settings, "SCOUT_CONTACT_EMAIL", placeholder)
+    assert sources_service.user_agent() == "MarketScout/0.1"

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -15,7 +15,7 @@ def ids(response) -> list[int]:
 @pytest.fixture()
 def leads(make_business):
     """Six leads with deliberately different attributes."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "noor": make_business(
             "Al Noor Solar Dealer", phones=["0300 4438424", "042 3577 1769"], emails=["info@alnoor.pk"],

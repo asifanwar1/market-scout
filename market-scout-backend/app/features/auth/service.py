@@ -37,7 +37,7 @@ def refresh_tokens(db: Session, refresh_token: str) -> dict:
     try:
         payload = decode_token(refresh_token)
     except JWTError:
-        raise UnauthorizedException("Invalid refresh token")
+        raise UnauthorizedException("Invalid refresh token") from None
 
     if payload.get("type") != "refresh":
         raise UnauthorizedException("Invalid refresh token")
@@ -45,7 +45,7 @@ def refresh_tokens(db: Session, refresh_token: str) -> dict:
     try:
         user_id = int(payload.get("sub"))
     except (TypeError, ValueError):
-        raise UnauthorizedException("Invalid refresh token")
+        raise UnauthorizedException("Invalid refresh token") from None
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user or not user.is_active or payload.get("tv") != user.token_version:

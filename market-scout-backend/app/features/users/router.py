@@ -1,11 +1,13 @@
 from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+
 from app.dependencies import get_db
 from app.features.auth.dependencies import get_current_admin_user
 from app.features.users import service
 from app.features.users.models import User, UserRole
-from app.features.users.schemas import UserCreate, UserUpdate, UserResponse, UserListResponse
+from app.features.users.schemas import UserCreate, UserListResponse, UserResponse, UserUpdate
 
 router = APIRouter()
 

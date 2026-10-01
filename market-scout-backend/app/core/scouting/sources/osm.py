@@ -2,12 +2,15 @@
 and a shared public server that throttles hard -- hence the enforced gap between requests."""
 import re
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import httpx
 
 from app.core.scouting.sources.base import (
-    SourceError, SourceUnavailableError, request_with_retries,
+    SourceAuthError,
+    SourceError,
+    SourceUnavailableError,
+    request_with_retries,
 )
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery, SearchResult
 
@@ -130,12 +133,19 @@ class OsmSource:
             self._client, "POST", self._endpoint, sleep=self._sleep, data={"data": ql}
         )
         self._last_request_at = self._clock()
+        if response.status_code in (403, 406):
+            # Overpass turns away clients it considers anonymous or automated, which includes a
+            # placeholder contact address. Retrying won't help, so this stops the run's searches early.
+            raise SourceAuthError(
+                f"Overpass refused this app's identification (HTTP {response.status_code}). Set SCOUT_CONTACT_EMAIL to a "
+                "real address you read (not a placeholder such as you@example.com), or leave it blank."
+            )
         if response.status_code != 200:
             raise SourceError(f"Overpass returned HTTP {response.status_code}")
         try:
             return response.json()
         except ValueError:
-            raise SourceUnavailableError("Overpass returned an unreadable response")
+            raise SourceUnavailableError("Overpass returned an unreadable response") from None
 
     def _respect_min_interval(self) -> None:
         if self._last_request_at is None:

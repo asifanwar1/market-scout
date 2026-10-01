@@ -8,7 +8,10 @@ import {
 } from "nuqs";
 import { useEffect, useMemo, useState } from "react";
 
+import { ExportLeadsCsv } from "@/api";
+
 import type {
+    TBusinessFilters,
     TBusinessSort,
     TGetBusinessesParams,
     TSortDirection,
@@ -27,6 +30,8 @@ import {
 } from "@/hooks/api/catalog.queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { showToast } from "@/lib/toast";
+import { getBlobErrorMessage, saveBlob, todayStamp } from "@/utils/download.utils";
+import { pluralize } from "@/utils/format.utils";
 import type { LeadStatus } from "@/constants/lead-status.constants";
 
 const SORTS = ["score", "newest", "last_seen", "name"] as const;
@@ -89,7 +94,7 @@ export const useLeadsPage = () => {
     const sort: TBusinessSort = state.sort ?? "score";
     const direction: TSortDirection = state.dir ?? defaultDirection(sort);
 
-    const params: TGetBusinessesParams = {
+    const filters: TBusinessFilters = {
         profile_id: activeProfileId,
         segment: state.segment ?? undefined,
         geography_id: state.location ?? undefined,
@@ -105,6 +110,9 @@ export const useLeadsPage = () => {
         has_website: state.website ? true : undefined,
         min_score: state.minScore ?? undefined,
         search: state.q || undefined,
+    };
+    const params: TGetBusinessesParams = {
+        ...filters,
         sort,
         direction,
         page: state.page,
@@ -175,6 +183,21 @@ export const useLeadsPage = () => {
         });
     };
 
+    // The file holds everything the current filters match, not just this page.
+    const [isExporting, setIsExporting] = useState(false);
+    const exportLeads = async () => {
+        setIsExporting(true);
+        try {
+            const blob = await ExportLeadsCsv({ ...filters, sort, direction });
+            saveBlob(blob, `market-scout-leads-${todayStamp()}.csv`);
+            showToast.success(`Exported ${pluralize(data?.count ?? 0, "lead", "leads")}`);
+        } catch (error) {
+            showToast.error(await getBlobErrorMessage(error));
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     const selectedIds = Object.keys(rowSelection)
         .filter((id) => rowSelection[id])
         .map(Number);
@@ -214,6 +237,8 @@ export const useLeadsPage = () => {
         setPage,
         applyBulkUpdate,
         isBulkUpdating,
+        exportLeads,
+        isExporting,
         openLead: (id: number) => void setState({ lead: id }, { history: "push" }),
         closeLead: () => void setState({ lead: null }),
     };

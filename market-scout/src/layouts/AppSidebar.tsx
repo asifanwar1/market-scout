@@ -35,7 +35,7 @@ const AppSidebar = ({ onLogoutClick }: TAppSidebarProps) => {
             <SidebarHeader>
                 <Link
                     to={APP_ROUTES.ROOT}
-                    className="flex items-center gap-2 px-2 py-1.5 font-semibold"
+                    className="flex items-center gap-2 px-2 py-1.5 font-semibold group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
                 >
                     <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                         <Radar className="size-4" />

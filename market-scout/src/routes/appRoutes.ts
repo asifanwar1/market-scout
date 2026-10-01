@@ -3,6 +3,7 @@ export enum APP_ROUTES {
     LOGIN = "/login",
 
     LEADS = "/leads",
+    INSIGHTS = "/insights",
     DO_NOT_CONTACT = "/do-not-contact",
 
     RUNS = "/runs",
@@ -14,5 +15,6 @@ export enum APP_ROUTES {
     PROFILES_DETAILS = "/profiles/:id",
     LOCATIONS = "/locations",
     SOURCES = "/sources",
+    SHEETS = "/sheets",
     USERS = "/users",
 }

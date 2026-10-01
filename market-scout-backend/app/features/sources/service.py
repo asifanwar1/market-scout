@@ -6,7 +6,12 @@ from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.scouting.sources import google_places
 from app.core.scouting.sources.base import Source
 from app.core.scouting.sources.registry import (
-    CATALOG, ENRICHMENT_KEY, KIND_DISCOVERY, SourceInfo, build_source, get_source_info,
+    CATALOG,
+    ENRICHMENT_KEY,
+    KIND_DISCOVERY,
+    SourceInfo,
+    build_source,
+    get_source_info,
 )
 from app.features.sources.models import DataSource
 from app.features.sources.schemas import SourceUpdate
@@ -15,9 +20,16 @@ from app.features.sources.schemas import SourceUpdate
 _ENV_KEYS = {google_places.SOURCE_KEY: lambda: settings.GOOGLE_PLACES_API_KEY}
 
 
+_PLACEHOLDER_DOMAINS = ("example.com", "example.org", "example.net", "test", "invalid", "localhost")
+
+
 def user_agent() -> str:
-    # The free public services we call ask clients to say who they are.
-    contact = f" (+mailto:{settings.SCOUT_CONTACT_EMAIL})" if settings.SCOUT_CONTACT_EMAIL else ""
+    # The free public services we call ask clients to say who they are. A placeholder address is
+    # worse than none: Overpass answers it with "406 Not Acceptable".
+    email = settings.SCOUT_CONTACT_EMAIL.strip()
+    domain = email.rpartition("@")[2].lower()
+    is_placeholder = any(domain == d or domain.endswith(f".{d}") for d in _PLACEHOLDER_DOMAINS)
+    contact = f" (+mailto:{email})" if email and not is_placeholder else ""
     return f"MarketScout/0.1{contact}"
 
 
@@ -39,6 +51,12 @@ def _ensure_rows(db: Session) -> dict[str, DataSource]:
     if created:
         db.commit()
     return rows
+
+
+def ensure_sources(db: Session) -> None:
+    """Create the on/off row for every catalogue source. Done once at start-up so that reading the
+    Sources screen never has to write."""
+    _ensure_rows(db)
 
 
 def _saved_key(row: DataSource) -> tuple[str | None, bool]:

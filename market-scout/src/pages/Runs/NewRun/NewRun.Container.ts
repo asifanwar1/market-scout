@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import type { TCreateRunBody } from "@/api/services/runs/runs.request.types";
 import { useGetGeographyTree, useGetProfile, useGetProfiles, useGetSources } from "@/hooks/api/catalog.queries";
@@ -11,6 +11,7 @@ import { APP_ROUTES } from "@/routes/appRoutes";
 
 export const useNewRun = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
 
     const { data: profilesData, isPending: isProfilesLoading } = useGetProfiles();
     const profiles = profilesData?.data ?? [];
@@ -27,7 +28,13 @@ export const useNewRun = () => {
     // null means "the default": every segment; the free sources that are switched on.
     const [chosenSegments, setChosenSegments] = useState<string[] | null>(null);
     const [chosenSources, setChosenSources] = useState<string[] | null>(null);
-    const [cityIds, setCityIds] = useState<number[]>([]);
+    // "Search here" on the Insights page arrives with the city already chosen (?city=12).
+    const [cityIds, setCityIds] = useState<number[]>(() =>
+        searchParams
+            .getAll("city")
+            .map(Number)
+            .filter((id) => Number.isInteger(id) && id > 0),
+    );
     const [enrichWebsites, setEnrichWebsites] = useState(true);
     const [refresh, setRefresh] = useState(false);
     const [maxPaid, setMaxPaid] = useState("");

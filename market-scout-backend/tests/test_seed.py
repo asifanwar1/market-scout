@@ -65,3 +65,33 @@ def test_seed_solar_profile_is_idempotent(db_session):
     assert seed_solar_profile(db_session) is False
     assert db_session.query(Profile).count() == 1
     assert db_session.query(ProfileSearchTerm).count() == terms_before
+
+
+# Rough bounding boxes (south, north, west, east): wide enough for the real borders, tight enough
+# that a typo'd coordinate (a swapped latitude/longitude, a dropped digit) lands outside its province.
+PROVINCE_BOXES = {
+    "Punjab": (27.7, 34.1, 69.3, 75.5),
+    "Sindh": (23.6, 28.6, 66.6, 71.2),
+    "Khyber Pakhtunkhwa": (31.0, 36.0, 69.2, 74.2),
+    "Balochistan": (24.8, 32.3, 60.8, 70.4),
+    "Islamabad Capital Territory": (33.4, 33.9, 72.8, 73.4),
+}
+
+
+def test_every_seeded_city_lies_inside_its_own_province():
+    for province, cities in REGIONS.items():
+        south, north, west, east = PROVINCE_BOXES[province]
+        for name, latitude, longitude, _radius in cities:
+            assert south <= latitude <= north and west <= longitude <= east, f"{name} ({latitude}, {longitude}) is not in {province}"
+
+
+def test_city_names_are_unique_so_every_city_gets_its_own_slug():
+    names = [name.lower() for cities in REGIONS.values() for name, *_ in cities]
+    assert len(names) == len(set(names))
+
+
+def test_the_list_covers_big_and_small_places_in_every_province():
+    sizes = {province: len(cities) for province, cities in REGIONS.items()}
+    assert sizes["Punjab"] >= 50 and sizes["Sindh"] >= 30 and sizes["Khyber Pakhtunkhwa"] >= 30 and sizes["Balochistan"] >= 30
+    small_towns = [name for cities in REGIONS.values() for name, _la, _lo, radius in cities if radius <= 5]
+    assert len(small_towns) >= 60

@@ -1,18 +1,18 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.core.scouting.normalize import PhoneInfo
 from app.core.scouting.types import RawBusiness
 from app.features.businesses import ingest as service
-from app.features.businesses.models import Business, BusinessClassification, ContactPoint, SourceRecord
 from app.features.businesses.ingest import IngestContext
+from app.features.businesses.models import Business, BusinessClassification, ContactPoint, SourceRecord
 from app.features.geographies.models import Geography
 from app.features.profiles.models import Profile
 from app.features.runs.service import _profile_scoring
 from scripts.seed import seed_geographies, seed_solar_profile
 
-NOW = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture()

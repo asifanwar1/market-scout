@@ -1,12 +1,17 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+
 from app.core.limiter import limiter, login_rate_limit_key
 from app.dependencies import get_db
 from app.features.auth import service
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.schemas import (
-    LoginRequest, TokenResponse, RefreshRequest, ChangePasswordRequest, MessageResponse,
+    ChangePasswordRequest,
+    LoginRequest,
+    MessageResponse,
+    RefreshRequest,
+    TokenResponse,
 )
 from app.features.users.models import User
 from app.features.users.schemas import UserResponse

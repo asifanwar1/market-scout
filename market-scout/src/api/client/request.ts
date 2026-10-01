@@ -16,6 +16,7 @@ interface IRequestConfig<TBody = unknown> {
     signal?: AbortSignal;
     skipAuth?: boolean;
     silent?: boolean;
+    responseType?: "json" | "blob";
 }
 
 export const request = async <TResponse = unknown, TBody = unknown>(
@@ -30,6 +31,7 @@ export const request = async <TResponse = unknown, TBody = unknown>(
     const response = await axiosInstance({
         skipAuth: config.skipAuth,
         silent: config.silent,
+        responseType: config.responseType,
         method: config.method,
         url: config.url,
         headers: config.headers,

@@ -11,6 +11,7 @@ import RequireRole from "./RequireRole";
 // Pages load on demand so the sign-in screen doesn't ship the whole app.
 const Login = lazy(() => import("@/pages/Authentication/Login/Login"));
 const Leads = lazy(() => import("@/pages/Leads/Leads"));
+const Insights = lazy(() => import("@/pages/Insights/Insights"));
 const DoNotContact = lazy(() => import("@/pages/DoNotContact/DoNotContact"));
 const Runs = lazy(() => import("@/pages/Runs/Runs"));
 const NewRun = lazy(() => import("@/pages/Runs/NewRun/NewRun"));
@@ -19,6 +20,7 @@ const Profiles = lazy(() => import("@/pages/Profiles/Profiles"));
 const ProfileEditor = lazy(() => import("@/pages/Profiles/ProfileEditor/ProfileEditor"));
 const Locations = lazy(() => import("@/pages/Locations/Locations"));
 const Sources = lazy(() => import("@/pages/Sources/Sources"));
+const Sheets = lazy(() => import("@/pages/Sheets/Sheets"));
 const Users = lazy(() => import("@/pages/Users/Users"));
 const NotFound = lazy(() => import("@/pages/NotFound/NotFound"));
 
@@ -37,6 +39,7 @@ export const routes: RouteObject[] = [
                 element: <Navigate to={APP_ROUTES.LEADS} replace />,
             },
             { path: APP_ROUTES.LEADS, element: <Leads /> },
+            { path: APP_ROUTES.INSIGHTS, element: <Insights /> },
             { path: APP_ROUTES.DO_NOT_CONTACT, element: <DoNotContact /> },
             {
                 element: <RequireRole roles={[USER_ROLE.ADMIN]} />,
@@ -49,6 +52,7 @@ export const routes: RouteObject[] = [
                     { path: APP_ROUTES.PROFILES_DETAILS, element: <ProfileEditor /> },
                     { path: APP_ROUTES.LOCATIONS, element: <Locations /> },
                     { path: APP_ROUTES.SOURCES, element: <Sources /> },
+                    { path: APP_ROUTES.SHEETS, element: <Sheets /> },
                     { path: APP_ROUTES.USERS, element: <Users /> },
                 ],
             },

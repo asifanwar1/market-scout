@@ -1,12 +1,18 @@
 from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+
 from app.dependencies import get_db
 from app.features.auth.dependencies import get_current_admin_user, get_current_user
 from app.features.geographies import service
 from app.features.geographies.models import GeographyLevel
 from app.features.geographies.schemas import (
-    GeographyCreate, GeographyUpdate, GeographyResponse, GeographyListResponse, GeographyTreeNode,
+    GeographyCreate,
+    GeographyListResponse,
+    GeographyResponse,
+    GeographyTreeNode,
+    GeographyUpdate,
 )
 
 router = APIRouter()

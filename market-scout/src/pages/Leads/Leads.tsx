@@ -1,4 +1,4 @@
-import { Radar, SearchX, UserX } from "lucide-react";
+import { Download, Loader2, Radar, SearchX, UserX } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import DataTable from "@/components/custom/DataTable";
@@ -36,6 +36,8 @@ const Leads = () => {
         closeLead,
         profiles,
         isProfilesLoading,
+        exportLeads,
+        isExporting,
     } = page;
 
     const emptyState = (() => {
@@ -87,6 +89,12 @@ const Leads = () => {
             <PageHeader
                 title="Leads"
                 description="Businesses to contact, best first. Click a row for details and to record what happened."
+                actions={
+                    <Button variant="outline" onClick={exportLeads} disabled={total === 0 || isExporting}>
+                        {isExporting ? <Loader2 className="animate-spin" /> : <Download />}
+                        Export CSV
+                    </Button>
+                }
             />
 
             <LeadsFilters page={page} />

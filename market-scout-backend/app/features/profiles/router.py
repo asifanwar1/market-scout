@@ -1,10 +1,12 @@
 from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+
 from app.dependencies import get_db
 from app.features.auth.dependencies import get_current_admin_user, get_current_user
 from app.features.profiles import service
-from app.features.profiles.schemas import ProfileCreate, ProfileUpdate, ProfileResponse, ProfileListResponse
+from app.features.profiles.schemas import ProfileCreate, ProfileListResponse, ProfileResponse, ProfileUpdate
 
 router = APIRouter()
 

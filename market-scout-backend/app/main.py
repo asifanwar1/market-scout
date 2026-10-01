@@ -1,25 +1,36 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
-from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from app.config import settings
 from app.core.limiter import limiter
+from app.dependencies import get_db
 from app.features.auth.router import router as auth_router
-from app.features.users.router import router as users_router
-from app.features.geographies.router import router as geographies_router
-from app.features.profiles.router import router as profiles_router
-from app.features.sources.router import router as sources_router
-from app.features.runs.router import router as runs_router
 from app.features.businesses.router import router as businesses_router
 from app.features.compliance.router import router as compliance_router
+from app.features.exports.router import router as exports_router
+from app.features.geographies.router import router as geographies_router
+from app.features.insights.router import router as insights_router
+from app.features.profiles.router import router as profiles_router
 from app.features.runs import service as runs_service
+from app.features.runs.router import router as runs_router
 from app.features.runs.worker import worker
+from app.features.sheets.router import router as sheets_router
+from app.features.sources.router import router as sources_router
+from app.features.users.router import router as users_router
+
+# Uvicorn only configures its own loggers; without this the app's own messages (a failed sync, a
+# crashed run) would be dropped or shown without a time. A no-op if logging is already configured.
+logging.basicConfig(level=settings.LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +94,22 @@ app.include_router(sources_router, prefix="/api/v1/sources", tags=["Sources"])
 app.include_router(runs_router, prefix="/api/v1/runs", tags=["Runs"])
 app.include_router(businesses_router, prefix="/api/v1/businesses", tags=["Businesses"])
 app.include_router(compliance_router, prefix="/api/v1/compliance", tags=["Compliance"])
+app.include_router(exports_router, prefix="/api/v1/exports", tags=["Exports"])
+app.include_router(sheets_router, prefix="/api/v1/sheets", tags=["Google Sheets"])
+app.include_router(insights_router, prefix="/api/v1/insights", tags=["Insights"])
 
 
 @app.get("/")
 def health_check():
     return {"status": "ok", "message": "Market Scout API is running"}
+
+
+@app.get("/health")
+def health(db: Session = Depends(get_db)):
+    """For a load balancer or uptime monitor: 200 only if the database answers."""
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("Health check: the database did not answer")
+        return JSONResponse(status_code=503, content={"status": "unavailable", "database": "down"})
+    return {"status": "ok", "database": "ok"}

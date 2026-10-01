@@ -8,13 +8,22 @@ from sqlalchemy.orm import Session
 from app.core.scouting.classify import LeadSignals, SegmentRule, classify, score_lead
 from app.core.scouting.dedupe import BusinessKeys, is_same_business
 from app.core.scouting.normalize import (
-    PhoneInfo, extract_phones_from_many, normalize_email, normalize_name, normalize_website,
+    PhoneInfo,
+    extract_phones_from_many,
+    normalize_email,
+    normalize_name,
+    normalize_website,
 )
 from app.core.scouting.types import RawBusiness
 from app.features.businesses.models import (
-    Business, BusinessClassification, ContactKind, ContactPoint, SourceRecord,
+    Business,
+    BusinessClassification,
+    ContactKind,
+    ContactPoint,
+    SourceRecord,
 )
 from app.features.compliance import service as compliance_service
+from app.features.insights.models import BusinessSnapshot
 
 # ~330 m: comfortably wider than the engine's match radius, so the SQL prefilter never
 # hides a candidate the precise check would accept.
@@ -95,6 +104,7 @@ def ingest_business(db: Session, raw: RawBusiness, ctx: IngestContext) -> Ingest
         db.flush()
 
     _merge_fields(business, raw, site.url, site.domain, ctx)
+    _record_snapshot(db, business, ctx)
     _store_source_record(db, business, record, raw, ctx)
     _add_contact_points(db, business, raw.source_key, phones, emails, site.social_platform, site.social_url)
     db.flush()
@@ -232,6 +242,23 @@ def _merge_fields(business: Business, raw: RawBusiness, website_url: str | None,
     if raw.categories:
         merged = list(dict.fromkeys([*(business.categories or []), *raw.categories]))
         business.categories = merged[:_MAX_CATEGORIES]
+
+
+def _record_snapshot(db: Session, business: Business, ctx: IngestContext) -> None:
+    """Note the business's rating and review count as of this run (for market-change insights)."""
+    if ctx.run_id is None or (business.rating is None and business.review_count is None):
+        return
+    snapshot = (
+        db.query(BusinessSnapshot)
+        .filter(BusinessSnapshot.business_id == business.id, BusinessSnapshot.run_id == ctx.run_id)
+        .first()
+    )
+    if snapshot is None:
+        snapshot = BusinessSnapshot(business_id=business.id, run_id=ctx.run_id)
+        db.add(snapshot)
+    snapshot.seen_at = ctx.now
+    snapshot.rating = business.rating
+    snapshot.review_count = business.review_count
 
 
 def _store_source_record(db: Session, business: Business, record: SourceRecord | None, raw: RawBusiness, ctx: IngestContext) -> None:

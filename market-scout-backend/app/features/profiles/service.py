@@ -4,7 +4,12 @@ from app.core.exceptions import BadRequestException, ConflictException, NotFound
 from app.core.utils import slugify
 from app.features.profiles.models import Profile, ProfileSearchTerm, ProfileSegment
 from app.features.profiles.schemas import (
-    ProfileCreate, ProfileUpdate, SearchTermCreate, SegmentCreate, SegmentUpsert, SearchTermUpsert,
+    ProfileCreate,
+    ProfileUpdate,
+    SearchTermCreate,
+    SearchTermUpsert,
+    SegmentCreate,
+    SegmentUpsert,
 )
 
 

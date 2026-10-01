@@ -1,12 +1,14 @@
 """Google Places API (New) Text Search. Needs an API key; billed per request, so every
 search reports how many requests it made and honours a request cap."""
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import httpx
 
 from app.core.scouting.sources.base import (
-    SourceAuthError, SourceError, request_with_retries,
+    SourceAuthError,
+    SourceError,
+    request_with_retries,
 )
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery, SearchResult
 

@@ -1,6 +1,6 @@
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Mapping, Sequence
 
 # Business names are short; capping the length also bounds the cost of a
 # badly written (user-supplied) pattern.

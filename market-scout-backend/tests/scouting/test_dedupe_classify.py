@@ -1,5 +1,8 @@
 from app.core.scouting.classify import (
-    LeadSignals, SegmentRule, classify, score_lead,
+    LeadSignals,
+    SegmentRule,
+    classify,
+    score_lead,
 )
 from app.core.scouting.dedupe import BusinessKeys, haversine_m, is_same_business
 from app.core.scouting.normalize import normalize_name

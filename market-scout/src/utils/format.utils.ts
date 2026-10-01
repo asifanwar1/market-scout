@@ -27,6 +27,12 @@ export const formatDate = (value: string | null | undefined): string => {
     return format(parseServerDate(value), "d MMM yyyy");
 };
 
+/** "16 Aug": for tight spaces where the year is obvious. */
+export const formatShortDate = (value: string | null | undefined): string => {
+    if (!value) return "—";
+    return format(parseServerDate(value), "d MMM");
+};
+
 export const formatDateTime = (value: string | null | undefined): string => {
     if (!value) return "—";
     return format(parseServerDate(value), "d MMM yyyy, h:mm a");

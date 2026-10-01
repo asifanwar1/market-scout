@@ -12,12 +12,12 @@ from app.features.businesses.models import Business, ContactPoint
 from app.features.geographies.models import Geography
 from app.features.profiles.models import Profile
 from app.features.runs import service
-from app.features.runs.models import Run, RunStatus, RunTask
+from app.features.runs.models import Run, RunTask
 from app.features.runs.worker import RunWorker
 from app.features.sources import service as sources_service
 from app.features.sources.schemas import SourceUpdate
 from scripts.seed import seed_geographies, seed_solar_profile
-
+from scripts.seed_data.pakistan import REGIONS
 
 # ---- fixtures / fakes -----------------------------------------------------------
 
@@ -185,7 +185,7 @@ def test_create_run_builds_a_queued_run_with_one_task_per_search(client, admin_u
 def test_a_province_expands_to_its_cities(client, admin_user, auth_headers, world, db_session):
     punjab = db_session.query(Geography).filter_by(slug="punjab").one()
     run = make_run(client, admin_user, auth_headers, payload(world, [punjab]))
-    assert run["tasks_total"] == 16 * osm_dealer_terms(world)
+    assert run["tasks_total"] == len(REGIONS["Punjab"]) * osm_dealer_terms(world)
 
 
 @pytest.mark.parametrize(

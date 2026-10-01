@@ -1,4 +1,6 @@
 import {
+    BarChart3,
+    FileSpreadsheet,
     Layers,
     MapPin,
     Plug,
@@ -30,6 +32,7 @@ export const menuGroups: TMenuGroup[] = [
         label: "Work",
         items: [
             { label: "Leads", icon: Users, path: APP_ROUTES.LEADS },
+            { label: "Insights", icon: BarChart3, path: APP_ROUTES.INSIGHTS },
             { label: "Do not contact", icon: ShieldOff, path: APP_ROUTES.DO_NOT_CONTACT },
         ],
     },
@@ -41,6 +44,7 @@ export const menuGroups: TMenuGroup[] = [
             { label: "Profiles", icon: Layers, path: APP_ROUTES.PROFILES },
             { label: "Locations", icon: MapPin, path: APP_ROUTES.LOCATIONS },
             { label: "Sources", icon: Plug, path: APP_ROUTES.SOURCES },
+            { label: "Google Sheet", icon: FileSpreadsheet, path: APP_ROUTES.SHEETS },
             { label: "Users", icon: UserCog, path: APP_ROUTES.USERS },
         ],
     },

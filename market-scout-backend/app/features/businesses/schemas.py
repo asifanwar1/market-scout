@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
+
 from app.features.businesses.models import ContactKind, LeadStatus
 
 

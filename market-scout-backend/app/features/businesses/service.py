@@ -1,5 +1,6 @@
 """Reading and editing the stored businesses (the leads the sales team works)."""
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from sqlalchemy import and_, func, or_, select
@@ -7,7 +8,12 @@ from sqlalchemy.orm import Session, defer, joinedload, selectinload
 
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.features.businesses.models import (
-    Business, BusinessClassification, ContactKind, ContactPoint, LeadStatus, SourceRecord,
+    Business,
+    BusinessClassification,
+    ContactKind,
+    ContactPoint,
+    LeadStatus,
+    SourceRecord,
 )
 from app.features.businesses.schemas import BulkBusinessUpdate, BusinessSort, BusinessUpdate, SortDirection
 from app.features.compliance import service as compliance_service
@@ -168,6 +174,41 @@ def get_businesses(
     )
     lookups = _load_lookups(db, businesses)
     return {"data": [_to_list_item(b, filters.profile_id, lookups) for b in businesses], "count": total_count}
+
+
+def iter_business_batches(
+    db: Session,
+    filters: BusinessFilters,
+    sort: BusinessSort | None = None,
+    direction: SortDirection | None = None,
+    batch_size: int = 500,
+) -> Iterator[tuple[list[Business], "_Lookups"]]:
+    """Every visible business matching the filters, in list order, a batch at a time (for exports
+    and the live sheet, which read all of them). Ids are read once up front so the order holds
+    even if leads are added while this is running."""
+    ids = [
+        row[0]
+        for row in visible_businesses(db, filters)
+        .with_entities(Business.id)
+        .order_by(*_order_clauses(sort, direction, filters.profile_id))
+        .all()
+    ]
+    for start in range(0, len(ids), batch_size):
+        chunk = ids[start:start + batch_size]
+        by_id = {
+            business.id: business
+            for business in db.query(Business)
+            .filter(Business.id.in_(chunk))
+            .options(
+                selectinload(Business.contact_points),
+                selectinload(Business.classifications),
+                joinedload(Business.geography).joinedload(Geography.parent),
+            )
+            .all()
+        }
+        # A lead deleted between the two reads simply drops out.
+        businesses = [by_id[business_id] for business_id in chunk if business_id in by_id]
+        yield businesses, _load_lookups(db, businesses)
 
 
 @dataclass

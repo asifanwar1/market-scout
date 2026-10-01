@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
 from app.core.utils import slugify
 from app.features.profiles.models import TermLanguage
 
@@ -29,7 +30,7 @@ def _validate_regex(pattern: str) -> str:
     try:
         re.compile(pattern)
     except re.error as exc:
-        raise ValueError(f"'{pattern}' is not a valid regular expression: {exc}")
+        raise ValueError(f"'{pattern}' is not a valid regular expression: {exc}") from exc
     return pattern
 
 
