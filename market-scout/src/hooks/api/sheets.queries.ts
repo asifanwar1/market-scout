@@ -4,8 +4,8 @@ import { GetSheetsSettings, SHEETS_QUERY_KEYS, SyncSheets, TestSheets, UpdateShe
 import type { TUpdateSheetsBody } from "@/api/services/sheets/sheets.request.types";
 import { queryClient } from "@/lib/queryClient";
 import { useStore } from "@/store";
+import { FAST_POLL_MS } from "@/constants/timing.constants";
 
-const POLL_MS = 1500;
 
 export const useGetSheetsSettings = () => {
     const isAuthenticated = useStore((state) => state.isAuthenticated);
@@ -14,8 +14,7 @@ export const useGetSheetsSettings = () => {
         queryKey: [SHEETS_QUERY_KEYS.SHEETS],
         enabled: isAuthenticated,
         queryFn: GetSheetsSettings,
-        // A refresh can also start by itself (a run finished, a lead was edited): watch it finish.
-        refetchInterval: (query) => (query.state.data?.is_syncing ? POLL_MS : false),
+        refetchInterval: (query) => (query.state.data?.is_syncing ? FAST_POLL_MS : false),
     });
 };
 
@@ -28,7 +27,6 @@ export const useUpdateSheetsSettings = () =>
 export const useTestSheets = () =>
     useMutation({
         mutationFn: TestSheets,
-        // A test can learn the spreadsheet's title, which the settings show.
         onSuccess: () => queryClient.invalidateQueries({ queryKey: [SHEETS_QUERY_KEYS.SHEETS] }),
     });
 

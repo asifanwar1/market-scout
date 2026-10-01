@@ -1,52 +1,53 @@
 import type { RowSelectionState, SortingState } from "@tanstack/react-table";
 import {
+    debounce,
     parseAsBoolean,
     parseAsInteger,
     parseAsString,
     parseAsStringLiteral,
     useQueryStates,
 } from "nuqs";
-import { useEffect, useMemo, useState } from "react";
+import { useState, type ChangeEvent } from "react";
 
 import { ExportLeadsCsv } from "@/api";
-
 import type {
     TBusinessFilters,
     TBusinessSort,
     TGetBusinessesParams,
     TSortDirection,
 } from "@/api/services/businesses/businesses.request.types";
-import Config from "@/Config";
-import { LEAD_STATUS } from "@/constants";
-import {
-    useBulkUpdateBusinesses,
-    useGetAssignees,
-    useGetBusinesses,
-} from "@/hooks/api/businesses.queries";
-import {
-    useGetGeographyTree,
-    useGetProfile,
-    useGetProfiles,
-} from "@/hooks/api/catalog.queries";
+import type { TBusinessListItem } from "@/api/services/businesses/businesses.response.types";
+import { FIRST_PAGE, LEAD_STATUS, SEARCH_DEBOUNCE_MS, USER_ROLE } from "@/constants";
+import { GENERIC_ERROR_MESSAGE } from "@/constants/Validation-messages.constants";
+import type { LeadStatus } from "@/constants/lead-status.constants";
+import { useBulkUpdateBusinesses, useGetAssignees, useGetBusinesses } from "@/hooks/api/businesses.queries";
+import { useGetGeographyTree, useGetProfile, useGetProfiles } from "@/hooks/api/catalog.queries";
 import { useGetSourcesQuality } from "@/hooks/api/insights.queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { showToast } from "@/lib/toast";
+import { useStore } from "@/store";
 import { getBlobErrorMessage, saveBlob, todayStamp } from "@/utils/download.utils";
 import { pluralize } from "@/utils/format.utils";
-import type { LeadStatus } from "@/constants/lead-status.constants";
+import { paginationUrlState } from "@/utils/listUrlState";
+import {
+    DIRECTION_VALUES,
+    EMPTY_KIND,
+    EXPORT_FILE_EXTENSION,
+    EXPORT_FILE_PREFIX,
+    LEAD_SORT,
+    SORT_DIRECTION,
+    SORT_VALUES,
+    UNASSIGNED,
+} from "./Leads.constants";
+import type { TBulkChange, TEmptyKind } from "./Leads.types";
 
-const SORTS = ["score", "newest", "last_seen", "name"] as const;
-const DIRECTIONS = ["asc", "desc"] as const;
 const STATUSES = Object.values(LEAD_STATUS) as [LeadStatus, ...LeadStatus[]];
 
-// Everything a user can change lives in the URL, so a filtered view can be bookmarked or
-// sent to a colleague, and the back button behaves.
 const urlState = {
     profile: parseAsInteger,
     segment: parseAsString,
     location: parseAsInteger,
     status: parseAsStringLiteral(STATUSES),
-    // A user id, or "unassigned"
     assignee: parseAsString,
     q: parseAsString.withDefault(""),
     phone: parseAsBoolean,
@@ -54,48 +55,49 @@ const urlState = {
     email: parseAsBoolean,
     website: parseAsBoolean,
     minScore: parseAsInteger,
-    // Where the lead was found: a search source, or an imported list ("import:<name>")
     source: parseAsString,
-    sort: parseAsStringLiteral(SORTS),
-    dir: parseAsStringLiteral(DIRECTIONS),
-    page: parseAsInteger.withDefault(1),
-    size: parseAsInteger.withDefault(Config.LIMIT),
-    // The lead open in the side panel
+    sort: parseAsStringLiteral(SORT_VALUES),
+    dir: parseAsStringLiteral(DIRECTION_VALUES),
     lead: parseAsInteger,
+    ...paginationUrlState,
 };
 
-export const UNASSIGNED = "unassigned";
-export const ALL = "all";
-
-// Names sort A-Z; everything else newest / best first.
 const defaultDirection = (sort: TBusinessSort): TSortDirection =>
-    sort === "name" ? "asc" : "desc";
+    sort === LEAD_SORT.NAME ? SORT_DIRECTION.ASC : SORT_DIRECTION.DESC;
+
+const CLEARED_FILTERS = {
+    segment: null,
+    location: null,
+    status: null,
+    assignee: null,
+    q: null,
+    phone: null,
+    whatsapp: null,
+    email: null,
+    website: null,
+    minScore: null,
+    source: null,
+};
 
 export const useLeadsPage = () => {
     const [state, setState] = useQueryStates(urlState, { history: "replace" });
-
-    // The search box is typed into live but only hits the URL (and the server) once typing pauses.
-    const [searchInput, setSearchInput] = useState(state.q);
-    const debouncedSearch = useDebouncedValue(searchInput, 350);
-    useEffect(() => {
-        if (debouncedSearch !== state.q) {
-            void setState({ q: debouncedSearch || null, page: 1 });
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the debounced text
-    }, [debouncedSearch]);
+    const isAdmin = useStore((store) => store.user?.role === USER_ROLE.ADMIN);
+    const search = useDebouncedValue(state.q, SEARCH_DEBOUNCE_MS);
 
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const [isExporting, setIsExporting] = useState(false);
 
     const { data: profilesData, isPending: isProfilesLoading } = useGetProfiles();
     const profiles = profilesData?.data ?? [];
     const activeProfileId = state.profile ?? profiles[0]?.id;
+    const hasActiveProfile = activeProfileId !== undefined;
 
     const { data: profile } = useGetProfile(activeProfileId);
-    const { data: geographyTree } = useGetGeographyTree();
+    const { data: geographyTree = [] } = useGetGeographyTree();
     const { data: assignees = [] } = useGetAssignees();
-    const { data: sourceQuality } = useGetSourcesQuality(activeProfileId, activeProfileId !== undefined);
+    const { data: sourceQuality } = useGetSourcesQuality(activeProfileId, hasActiveProfile);
 
-    const sort: TBusinessSort = state.sort ?? "score";
+    const sort: TBusinessSort = state.sort ?? LEAD_SORT.SCORE;
     const direction: TSortDirection = state.dir ?? defaultDirection(sort);
 
     const filters: TBusinessFilters = {
@@ -103,10 +105,7 @@ export const useLeadsPage = () => {
         segment: state.segment ?? undefined,
         geography_id: state.location ?? undefined,
         status: state.status ?? undefined,
-        assigned_to_id:
-            state.assignee && state.assignee !== UNASSIGNED
-                ? Number(state.assignee)
-                : undefined,
+        assigned_to_id: state.assignee && state.assignee !== UNASSIGNED ? Number(state.assignee) : undefined,
         unassigned: state.assignee === UNASSIGNED ? true : undefined,
         has_phone: state.phone ? true : undefined,
         whatsapp_likely: state.whatsapp ? true : undefined,
@@ -114,7 +113,7 @@ export const useLeadsPage = () => {
         has_website: state.website ? true : undefined,
         min_score: state.minScore ?? undefined,
         source: state.source ?? undefined,
-        search: state.q || undefined,
+        search: search || undefined,
     };
     const params: TGetBusinessesParams = {
         ...filters,
@@ -124,131 +123,152 @@ export const useLeadsPage = () => {
         limit: state.size,
     };
 
-    const {
-        data,
-        isPending: isLeadsLoading,
-        isFetching,
-    } = useGetBusinesses(params, activeProfileId !== undefined);
+    const { data, isPending, isFetching } = useGetBusinesses(params, hasActiveProfile);
+    const { mutateAsync: bulkUpdate, isPending: isBulkUpdating } = useBulkUpdateBusinesses();
 
-    const { mutateAsync: bulkUpdate, isPending: isBulkUpdating } =
-        useBulkUpdateBusinesses();
+    const leads = data?.data ?? [];
+    const total = data?.count ?? 0;
+    const hasLeads = total > 0;
+    const sources = sourceQuality?.data ?? [];
+    const isLeadsLoading = isPending || isProfilesLoading;
+    const sorting: SortingState = [{ id: sort, desc: direction === SORT_DIRECTION.DESC }];
+    const selectedIds = Object.keys(rowSelection)
+        .filter((id) => rowSelection[id])
+        .map(Number);
+    const page = state.page;
+    const pageSize = state.size;
+    const leadId = state.lead;
+    const searchText = state.q;
+    const isExportDisabled = !hasLeads || isExporting;
+    const tableClassName = isFetching && !isLeadsLoading ? "opacity-70 transition-opacity" : "transition-opacity";
 
-    // Any change to what's shown starts over from page 1 with nothing selected.
+    const activeFilterCount = [
+        state.segment,
+        state.location,
+        state.status,
+        state.assignee,
+        state.q,
+        state.phone,
+        state.whatsapp,
+        state.email,
+        state.website,
+        state.minScore,
+        state.source,
+    ].filter((value) => value !== null && value !== "" && value !== false).length;
+
+    const hasActiveFilters = activeFilterCount > 0;
+    const hasNoProfile = !isProfilesLoading && profiles.length === 0;
+    const emptyKind: TEmptyKind = hasNoProfile ? EMPTY_KIND.NO_PROFILE : hasActiveFilters ? EMPTY_KIND.FILTERED : EMPTY_KIND.NONE;
+
     const changeFilters = (patch: Parameters<typeof setState>[0]) => {
         setRowSelection({});
-        void setState({ ...(patch as object), page: 1 });
+        void setState({ ...(patch as object), page: FIRST_PAGE });
     };
 
-    const setPage = (page: number) => {
+    const onSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
         setRowSelection({});
-        void setState({ page });
+        void setState({ q: event.target.value || null, page: FIRST_PAGE }, { limitUrlUpdates: debounce(SEARCH_DEBOUNCE_MS) });
     };
 
-    const sorting: SortingState = [{ id: sort, desc: direction === "desc" }];
+    const setPage = (nextPage: number) => {
+        setRowSelection({});
+        void setState({ page: nextPage });
+    };
+
+    const onPageSizeChange = (size: number) => {
+        void setState({ size, page: FIRST_PAGE });
+    };
+
     const onSortingChange = (updater: SortingState | ((old: SortingState) => SortingState)) => {
         const next = typeof updater === "function" ? updater(sorting) : updater;
         const column = next[0];
         if (!column) return;
         changeFilters({
             sort: column.id as TBusinessSort,
-            dir: column.desc ? "desc" : "asc",
+            dir: column.desc ? SORT_DIRECTION.DESC : SORT_DIRECTION.ASC,
         });
     };
-
-    const activeFilterCount = useMemo(
-        () =>
-            [
-                state.segment,
-                state.location,
-                state.status,
-                state.assignee,
-                state.q,
-                state.phone,
-                state.whatsapp,
-                state.email,
-                state.website,
-                state.minScore,
-                state.source,
-            ].filter((value) => value !== null && value !== "" && value !== false).length,
-        [state],
-    );
 
     const clearFilters = () => {
-        setSearchInput("");
-        changeFilters({
-            segment: null,
-            location: null,
-            status: null,
-            assignee: null,
-            q: null,
-            phone: null,
-            whatsapp: null,
-            email: null,
-            website: null,
-            minScore: null,
-            source: null,
-        });
+        changeFilters(CLEARED_FILTERS);
     };
 
-    // The file holds everything the current filters match, not just this page.
-    const [isExporting, setIsExporting] = useState(false);
     const exportLeads = async () => {
         setIsExporting(true);
         try {
             const blob = await ExportLeadsCsv({ ...filters, sort, direction });
-            saveBlob(blob, `market-scout-leads-${todayStamp()}.csv`);
-            showToast.success(`Exported ${pluralize(data?.count ?? 0, "lead", "leads")}`);
+            saveBlob(blob, `${EXPORT_FILE_PREFIX}${todayStamp()}${EXPORT_FILE_EXTENSION}`);
+            showToast.success(`Exported ${pluralize(total, "lead", "leads")}`);
         } catch (error) {
-            showToast.error(await getBlobErrorMessage(error));
+            showToast.error(error instanceof Error ? await getBlobErrorMessage(error) : GENERIC_ERROR_MESSAGE);
         } finally {
             setIsExporting(false);
         }
     };
 
-    const selectedIds = Object.keys(rowSelection)
-        .filter((id) => rowSelection[id])
-        .map(Number);
-
-    const applyBulkUpdate = async (
-        change: { lead_status?: LeadStatus; assigned_to_id?: number | null },
-        label: string,
-    ) => {
+    const applyBulkUpdate = async (change: TBulkChange, label: string) => {
         const { updated } = await bulkUpdate({ business_ids: selectedIds, ...change });
-        showToast.success(`${label}: ${updated} lead${updated === 1 ? "" : "s"} updated`);
+        showToast.success(`${label}: ${pluralize(updated, "lead", "leads")} updated`);
         setRowSelection({});
+    };
+
+    const getLeadRowId = (lead: TBusinessListItem) => String(lead.id);
+
+    const openLeadRow = (lead: TBusinessListItem) => {
+        void setState({ lead: lead.id }, { history: "push" });
+    };
+
+    const openLead = (id: number) => {
+        void setState({ lead: id }, { history: "push" });
+    };
+
+    const closeLead = () => {
+        void setState({ lead: null });
     };
 
     return {
         state,
         setState,
-        searchInput,
-        setSearchInput,
+        isAdmin,
+        searchText,
+        onSearchChange,
         profiles,
         isProfilesLoading,
         activeProfileId,
         profile,
-        geographyTree: geographyTree ?? [],
+        geographyTree,
         assignees,
-        sources: sourceQuality?.data ?? [],
-        leads: data?.data ?? [],
-        total: data?.count ?? 0,
-        isLeadsLoading: isLeadsLoading || isProfilesLoading,
+        sources,
+        leads,
+        total,
+        hasLeads,
+        page,
+        pageSize,
+        leadId,
+        isLeadsLoading,
         isFetching,
+        tableClassName,
         sorting,
         onSortingChange,
         rowSelection,
         setRowSelection,
         selectedIds,
         activeFilterCount,
+        hasActiveFilters,
+        emptyKind,
         changeFilters,
         clearFilters,
         setPage,
+        onPageSizeChange,
         applyBulkUpdate,
         isBulkUpdating,
         exportLeads,
         isExporting,
-        openLead: (id: number) => void setState({ lead: id }, { history: "push" }),
-        closeLead: () => void setState({ lead: null }),
+        isExportDisabled,
+        getLeadRowId,
+        openLeadRow,
+        openLead,
+        closeLead,
     };
 };
 

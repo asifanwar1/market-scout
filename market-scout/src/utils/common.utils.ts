@@ -1,8 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import type { TQueryKey } from "@/api/types/common";
+
 export const invalidateMultiple = async (
     client: QueryClient,
-    queryKeys: ReadonlyArray<ReadonlyArray<unknown>>,
+    queryKeys: ReadonlyArray<TQueryKey>,
 ) => {
     await Promise.all(
         queryKeys.map((queryKey) =>
@@ -11,6 +13,5 @@ export const invalidateMultiple = async (
     );
 };
 
-/** Query-string values arrive as strings; empty means "not set". */
 export const emptyToUndefined = <T,>(value: T | "" | null): T | undefined =>
     value === "" || value === null ? undefined : value;

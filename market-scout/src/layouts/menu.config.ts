@@ -23,7 +23,6 @@ export type TMenuItem = {
 
 export type TMenuGroup = {
     label: string;
-    // Roles that see the group; omitted means everyone.
     roles?: UserRole[];
     items: TMenuItem[];
 };

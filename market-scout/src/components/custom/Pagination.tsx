@@ -31,6 +31,11 @@ const Pagination = ({
     const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
     const last = Math.min(page * pageSize, total);
 
+    const renderSize = (size: (typeof PAGE_SIZES)[number]) => (
+        <SelectItem key={size} value={String(size)}>
+            {size}
+        </SelectItem>
+    );
     return (
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
             <p className="text-muted-foreground">
@@ -50,11 +55,7 @@ const Pagination = ({
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {PAGE_SIZES.map((size) => (
-                                    <SelectItem key={size} value={String(size)}>
-                                        {size}
-                                    </SelectItem>
-                                ))}
+                                {PAGE_SIZES.map(renderSize)}
                             </SelectContent>
                         </Select>
                     </div>

@@ -8,7 +8,6 @@ import { useStore } from "@/store";
 const AuthLayout = () => {
     const isAuthenticated = useStore((state) => state.isAuthenticated);
 
-    // Someone who is already signed in has no reason to see the login form.
     if (isAuthenticated) {
         return <Navigate to={APP_ROUTES.ROOT} replace />;
     }

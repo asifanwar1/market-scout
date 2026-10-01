@@ -3,19 +3,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/*
- * The shadcn "radix-vega" components are written with Base UI's state attributes
- * (data-checked, data-open, ...), but the Radix primitives we use report state as
- * data-state="checked" | "open" | ... . Without this mapping a checked switch or checkbox has no
- * fill (it looks the same on or off) and popups lose their open/close animation. Mapping it
- * here, once, keeps the generated components untouched so `shadcn add` can still update them.
- */
 @custom-variant data-checked (&:is([data-state="checked"], [data-checked]));
 @custom-variant data-unchecked (&:is([data-state="unchecked"], [data-unchecked]));
 @custom-variant data-open (&:is([data-state="open"], [data-open]));
 @custom-variant data-closed (&:is([data-state="closed"], [data-closed]));
 
-/* Design tokens. Deep teal brand colour, warm amber accent for scores and highlights. */
 :root {
     --radius: 0.625rem;
     --background: oklch(0.985 0.003 200);
@@ -50,7 +42,6 @@
     --sidebar-border: oklch(0.915 0.008 220);
     --sidebar-ring: oklch(0.55 0.09 205);
 
-    /* Status colours used by badges (background / text) */
     --success: oklch(0.94 0.05 160);
     --success-foreground: oklch(0.38 0.09 160);
     --warning: oklch(0.96 0.06 85);

@@ -21,7 +21,6 @@ export const useGetUsers = (params: TGetUsersParams) => {
     });
 };
 
-// The assignee dropdowns list active users, so they follow any change made here.
 const refreshUsers = () =>
     invalidateMultiple(queryClient, [
         [USER_QUERY_KEYS.USERS],

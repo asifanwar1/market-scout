@@ -9,9 +9,6 @@ import "./theme.css";
 import App from "./App.tsx";
 import { ApiClientProvider, ToastProvider } from "./providers";
 
-// Every failed API call is already reported by the axios interceptor (a toast), but callers that
-// `await` a mutation still see the rejection. Mark those as handled so the console stays for
-// genuine bugs.
 window.addEventListener("unhandledrejection", (event) => {
     if (isAxiosError(event.reason)) event.preventDefault();
 });

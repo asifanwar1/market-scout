@@ -1,41 +1,84 @@
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import type { TProfileListItem, TSegment } from "@/api/services/profiles/profiles.response.types";
+import type { TSource } from "@/api/services/sources/sources.response.types";
 import ConfirmationModal from "@/components/custom/ConfirmationModal";
 import Loading from "@/components/custom/Loading";
 import PageHeader from "@/components/custom/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { APP_ROUTES } from "@/routes/appRoutes";
-import { formatCount, formatUsd } from "@/utils/format.utils";
-import { getUnavailableReason } from "@/utils/sources.utils";
-import EstimatePanel from "./EstimatePanel";
-import LocationPicker from "./LocationPicker";
+import EstimatePanel from "./Components/EstimatePanel";
+import LocationPicker from "./Components/LocationPicker";
+import SegmentOption from "./Components/SegmentOption";
+import SourceOption from "./Components/SourceOption";
+import { NEW_RUN_DESCRIPTION, NO_PROFILE_MESSAGE } from "./NewRun.constants";
 import { useNewRun } from "./NewRun.Container";
 
 const NewRun = () => {
-    const run = useNewRun();
+    const {
+        profiles,
+        hasMultipleProfiles,
+        hasNoProfiles,
+        isProfilesLoading,
+        profileValue,
+        onProfileChange,
+        segments,
+        segmentSlugs,
+        toggleSegment,
+        geographyTree,
+        cityIds,
+        setCityIds,
+        discoverySources,
+        sourceKeys,
+        toggleSource,
+        usesPaidSource,
+        enrichmentAvailable,
+        setEnrichWebsites,
+        refresh,
+        setRefresh,
+        maxPaid,
+        onMaxPaidChange,
+        isEnrichmentOn,
+        confirmDescription,
+        estimate,
+        isEstimating,
+        estimateError,
+        hasSelection,
+        canStart,
+        isStarting,
+        requestStart,
+        confirmStart,
+        showConfirm,
+        closeConfirm,
+    } = useNewRun();
 
-    if (run.isProfilesLoading) return <Loading />;
+    const renderProfile = (profile: TProfileListItem) => (
+        <SelectItem key={profile.id} value={String(profile.id)}>
+            {profile.name}
+        </SelectItem>
+    );
 
-    if (run.profiles.length === 0) {
+    const renderSegment = (segment: TSegment) => (
+        <SegmentOption key={segment.id} segment={segment} isChecked={segmentSlugs.includes(segment.slug)} onToggle={toggleSegment} />
+    );
+
+    const renderSource = (source: TSource) => (
+        <SourceOption key={source.key} source={source} isChecked={sourceKeys.includes(source.key)} onToggle={toggleSource} />
+    );
+
+    if (isProfilesLoading) return <Loading />;
+
+    if (hasNoProfiles) {
         return (
             <div className="space-y-4">
                 <PageHeader title="New run" />
-                <p className="text-sm text-muted-foreground">
-                    There is no profile to search with yet. Set one up first (an industry such as solar).
-                </p>
+                <p className="text-sm text-muted-foreground">{NO_PROFILE_MESSAGE}</p>
             </div>
         );
     }
@@ -49,10 +92,7 @@ const NewRun = () => {
                 </Link>
             </Button>
 
-            <PageHeader
-                title="New run"
-                description="Choose what to look for and where. The panel on the right shows the effort and cost before anything starts."
-            />
+            <PageHeader title="New run" description={NEW_RUN_DESCRIPTION} />
 
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="space-y-6">
@@ -62,49 +102,21 @@ const NewRun = () => {
                             <CardDescription>The profile decides which searches are made.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-5">
-                            {run.profiles.length > 1 && (
+                            {hasMultipleProfiles && (
                                 <div className="space-y-1.5">
                                     <Label htmlFor="run-profile">Profile</Label>
-                                    <Select
-                                        value={String(run.profileId)}
-                                        onValueChange={(value) => run.setProfileId(Number(value))}
-                                    >
+                                    <Select value={profileValue} onValueChange={onProfileChange}>
                                         <SelectTrigger id="run-profile" className="w-full sm:w-72">
                                             <SelectValue />
                                         </SelectTrigger>
-                                        <SelectContent>
-                                            {run.profiles.map((profile) => (
-                                                <SelectItem key={profile.id} value={String(profile.id)}>
-                                                    {profile.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
+                                        <SelectContent>{profiles.map(renderProfile)}</SelectContent>
                                     </Select>
                                 </div>
                             )}
 
                             <fieldset className="space-y-2">
                                 <legend className="text-sm font-medium">Kinds of business</legend>
-                                <div className="grid gap-2 sm:grid-cols-2">
-                                    {run.segments.map((segment) => (
-                                        <div key={segment.id} className="flex items-start gap-2">
-                                            <Checkbox
-                                                id={`segment-${segment.id}`}
-                                                className="mt-0.5"
-                                                checked={run.segmentSlugs.includes(segment.slug)}
-                                                onCheckedChange={() => run.toggleSegment(segment.slug)}
-                                            />
-                                            <Label htmlFor={`segment-${segment.id}`} className="block font-normal">
-                                                <span className="font-medium">{segment.name}</span>
-                                                {segment.description && (
-                                                    <span className="block text-xs text-muted-foreground">
-                                                        {segment.description}
-                                                    </span>
-                                                )}
-                                            </Label>
-                                        </div>
-                                    ))}
-                                </div>
+                                <div className="grid gap-2 sm:grid-cols-2">{segments.map(renderSegment)}</div>
                             </fieldset>
                         </CardContent>
                     </Card>
@@ -115,11 +127,7 @@ const NewRun = () => {
                             <CardDescription>Each city is searched separately.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <LocationPicker
-                                tree={run.geographyTree}
-                                selected={run.cityIds}
-                                onChange={run.setCityIds}
-                            />
+                            <LocationPicker tree={geographyTree} selected={cityIds} onChange={setCityIds} />
                         </CardContent>
                     </Card>
 
@@ -131,33 +139,10 @@ const NewRun = () => {
                         <CardContent className="space-y-5">
                             <fieldset className="space-y-3">
                                 <legend className="sr-only">Sources</legend>
-                                {run.discoverySources.map((source) => (
-                                    <div key={source.key} className="flex items-start gap-2">
-                                        <Checkbox
-                                            id={`source-${source.key}`}
-                                            className="mt-0.5"
-                                            disabled={!source.is_available}
-                                            checked={run.sourceKeys.includes(source.key)}
-                                            onCheckedChange={() => run.toggleSource(source.key)}
-                                        />
-                                        <Label htmlFor={`source-${source.key}`} className="block font-normal">
-                                            <span className="font-medium">
-                                                {source.name}
-                                                {source.is_paid && (
-                                                    <span className="ml-2 rounded bg-warning px-1.5 py-0.5 text-xs font-normal text-warning-foreground">
-                                                        Paid
-                                                    </span>
-                                                )}
-                                            </span>
-                                            <span className="block text-xs text-muted-foreground">
-                                                {source.is_available ? source.description : getUnavailableReason(source)}
-                                            </span>
-                                        </Label>
-                                    </div>
-                                ))}
+                                {discoverySources.map(renderSource)}
                             </fieldset>
 
-                            {run.usesPaidSource && (
+                            {usesPaidSource && (
                                 <div className="space-y-1.5">
                                     <Label htmlFor="run-cap">Spending cap (billable requests)</Label>
                                     <Input
@@ -166,8 +151,8 @@ const NewRun = () => {
                                         min={1}
                                         inputMode="numeric"
                                         placeholder="No cap"
-                                        value={run.maxPaid}
-                                        onChange={(event) => run.setMaxPaid(event.target.value)}
+                                        value={maxPaid}
+                                        onChange={onMaxPaidChange}
                                         className="w-full sm:w-48"
                                     />
                                     <p className="text-xs text-muted-foreground">
@@ -180,17 +165,12 @@ const NewRun = () => {
                                 <div>
                                     <Label htmlFor="run-enrich">Read each business's website</Label>
                                     <p className="text-xs text-muted-foreground">
-                                        {run.enrichmentAvailable
+                                        {enrichmentAvailable
                                             ? "Looks for an email address, WhatsApp number and social pages."
                                             : "Switched off by an administrator."}
                                     </p>
                                 </div>
-                                <Switch
-                                    id="run-enrich"
-                                    checked={run.enrichWebsites && run.enrichmentAvailable}
-                                    disabled={!run.enrichmentAvailable}
-                                    onCheckedChange={run.setEnrichWebsites}
-                                />
+                                <Switch id="run-enrich" checked={isEnrichmentOn} disabled={!enrichmentAvailable} onCheckedChange={setEnrichWebsites} />
                             </div>
 
                             <div className="flex items-start justify-between gap-4">
@@ -200,35 +180,31 @@ const NewRun = () => {
                                         Repeat searches that already finished in the last few days instead of skipping them.
                                     </p>
                                 </div>
-                                <Switch id="run-refresh" checked={run.refresh} onCheckedChange={run.setRefresh} />
+                                <Switch id="run-refresh" checked={refresh} onCheckedChange={setRefresh} />
                             </div>
                         </CardContent>
                     </Card>
                 </div>
 
                 <EstimatePanel
-                    hasSelection={run.hasSelection}
-                    estimate={run.estimate}
-                    isEstimating={run.isEstimating}
-                    error={run.estimateError}
-                    canStart={run.canStart}
-                    isStarting={run.isStarting}
-                    onStart={run.requestStart}
+                    hasSelection={hasSelection}
+                    estimate={estimate}
+                    isEstimating={isEstimating}
+                    error={estimateError}
+                    canStart={canStart}
+                    isStarting={isStarting}
+                    onStart={requestStart}
                 />
             </div>
 
             <ConfirmationModal
-                open={run.showConfirm}
+                open={showConfirm}
                 title="Start a run that costs money?"
-                description={
-                    run.estimate
-                        ? `This run may make up to ${formatCount(run.estimate.paid_requests_max)} billable Google requests (about ${formatUsd(run.estimate.estimated_cost_usd)} at the configured rate). You can cancel it while it runs.`
-                        : ""
-                }
+                description={confirmDescription}
                 confirmText="Start run"
-                isLoading={run.isStarting}
-                onConfirm={run.confirmStart}
-                onClose={() => run.setShowConfirm(false)}
+                isLoading={isStarting}
+                onConfirm={confirmStart}
+                onClose={closeConfirm}
             />
         </div>
     );

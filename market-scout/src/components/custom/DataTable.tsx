@@ -3,7 +3,9 @@ import {
     getCoreRowModel,
     useReactTable,
     type ColumnDef,
+    type HeaderGroup,
     type OnChangeFn,
+    type Row,
     type RowSelectionState,
     type SortingState,
 } from "@tanstack/react-table";
@@ -20,13 +22,26 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { DEFAULT_SKELETON_ROWS } from "@/constants/limits.constants";
+
+type THeaderGroup<T> = HeaderGroup<T>;
+type THeader<T> = HeaderGroup<T>["headers"][number];
+type TRow<T> = Row<T>;
+type TCell<T> = ReturnType<Row<T>["getVisibleCells"]>[number];
+
+const SORTED_ASC = "asc";
+const SORTED_DESC = "desc";
+
+const ARIA_SORT = {
+    [SORTED_ASC]: "ascending",
+    [SORTED_DESC]: "descending",
+} as const;
 
 type TDataTableProps<T> = {
-    columns: ColumnDef<T, unknown>[];
+    columns: ColumnDef<T>[];
     data: T[];
     getRowId: (row: T) => string;
     isLoading?: boolean;
-    // Sorting happens on the server, so the table only reports what was clicked.
     sorting?: SortingState;
     onSortingChange?: OnChangeFn<SortingState>;
     rowSelection?: RowSelectionState;
@@ -47,13 +62,10 @@ const DataTable = <T,>({
     onRowSelectionChange,
     onRowClick,
     emptyState,
-    skeletonRows = 8,
+    skeletonRows = DEFAULT_SKELETON_ROWS,
 }: TDataTableProps<T>) => {
-    // TanStack Table returns fresh function objects every render; the React Compiler would
-    // memoise around them and the table would stop updating.
     "use no memo";
 
-    // The lint warning below is the compiler noting the same thing the directive above handles.
     // eslint-disable-next-line react-hooks/incompatible-library
     const table = useReactTable({
         data,
@@ -69,79 +81,89 @@ const DataTable = <T,>({
     });
 
     const isEmpty = !isLoading && data.length === 0;
+    const showSkeleton = isLoading;
+    const showRows = !isLoading;
+    const skeletonRowIndexes = Array.from({ length: skeletonRows }, (_, index) => index);
+
+    const renderHeader = (header: THeader<T>) => {
+        const canSort = header.column.getCanSort();
+        const sorted = header.column.getIsSorted();
+        const sortLabel = sorted ? ARIA_SORT[sorted] : undefined;
+        const headerContent = flexRender(header.column.columnDef.header, header.getContext());
+
+        const renderSortIcon = () => {
+            if (sorted === SORTED_ASC) return <ArrowUp className="size-3.5" />;
+            if (sorted === SORTED_DESC) return <ArrowDown className="size-3.5" />;
+            return <ChevronsUpDown className="size-3.5 text-muted-foreground/60" />;
+        };
+
+        const renderHeaderContent = () => {
+            if (header.isPlaceholder) return null;
+            if (!canSort) return headerContent;
+            return (
+                <button
+                    type="button"
+                    onClick={header.column.getToggleSortingHandler()}
+                    className="-ml-1 inline-flex items-center gap-1 rounded px-1 py-0.5 font-medium hover:bg-muted"
+                >
+                    {headerContent}
+                    {renderSortIcon()}
+                </button>
+            );
+        };
+
+        return (
+            <TableHead key={header.id} style={{ width: header.column.columnDef.size }} aria-sort={sortLabel}>
+                {renderHeaderContent()}
+            </TableHead>
+        );
+    };
+
+    const renderHeaderGroup = (headerGroup: THeaderGroup<T>) => (
+        <TableRow key={headerGroup.id} className="hover:bg-transparent">
+            {headerGroup.headers.map(renderHeader)}
+        </TableRow>
+    );
+
+    const renderSkeletonCell = (columnIndex: number) => (
+        <TableCell key={columnIndex}>
+            <Skeleton className="h-5 w-full max-w-40" />
+        </TableCell>
+    );
+
+    const renderSkeletonRow = (rowIndex: number) => (
+        <TableRow key={`skeleton-${rowIndex}`} className="hover:bg-transparent">
+            {columns.map((_column, columnIndex) => renderSkeletonCell(columnIndex))}
+        </TableRow>
+    );
+
+    const renderCell = (cell: TCell<T>) => (
+        <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+    );
+
+    const renderRow = (row: TRow<T>) => {
+        const onClick = onRowClick ? () => onRowClick(row.original) : undefined;
+
+        return (
+            <TableRow
+                key={row.id}
+                data-state={row.getIsSelected() ? "selected" : undefined}
+                onClick={onClick}
+                className={cn(onRowClick && "cursor-pointer")}
+            >
+                {row.getVisibleCells().map(renderCell)}
+            </TableRow>
+        );
+    };
 
     return (
         <div className="overflow-hidden rounded-lg border bg-card">
             <Table>
-                <TableHeader className="bg-muted/40">
-                    {table.getHeaderGroups().map((headerGroup) => (
-                        <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                            {headerGroup.headers.map((header) => {
-                                const canSort = header.column.getCanSort();
-                                const sorted = header.column.getIsSorted();
-                                return (
-                                    <TableHead
-                                        key={header.id}
-                                        style={{ width: header.column.columnDef.size }}
-                                        aria-sort={
-                                            sorted === "asc"
-                                                ? "ascending"
-                                                : sorted === "desc"
-                                                  ? "descending"
-                                                  : undefined
-                                        }
-                                    >
-                                        {header.isPlaceholder ? null : canSort ? (
-                                            <button
-                                                type="button"
-                                                onClick={header.column.getToggleSortingHandler()}
-                                                className="-ml-1 inline-flex items-center gap-1 rounded px-1 py-0.5 font-medium hover:bg-muted"
-                                            >
-                                                {flexRender(header.column.columnDef.header, header.getContext())}
-                                                {sorted === "asc" ? (
-                                                    <ArrowUp className="size-3.5" />
-                                                ) : sorted === "desc" ? (
-                                                    <ArrowDown className="size-3.5" />
-                                                ) : (
-                                                    <ChevronsUpDown className="size-3.5 text-muted-foreground/60" />
-                                                )}
-                                            </button>
-                                        ) : (
-                                            flexRender(header.column.columnDef.header, header.getContext())
-                                        )}
-                                    </TableHead>
-                                );
-                            })}
-                        </TableRow>
-                    ))}
-                </TableHeader>
+                <TableHeader className="bg-muted/40">{table.getHeaderGroups().map(renderHeaderGroup)}</TableHeader>
                 <TableBody>
-                    {isLoading &&
-                        Array.from({ length: skeletonRows }).map((_, rowIndex) => (
-                            <TableRow key={`skeleton-${rowIndex}`} className="hover:bg-transparent">
-                                {columns.map((_column, columnIndex) => (
-                                    <TableCell key={columnIndex}>
-                                        <Skeleton className="h-5 w-full max-w-40" />
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
+                    {showSkeleton && skeletonRowIndexes.map(renderSkeletonRow)}
 
-                    {!isLoading &&
-                        table.getRowModel().rows.map((row) => (
-                            <TableRow
-                                key={row.id}
-                                data-state={row.getIsSelected() ? "selected" : undefined}
-                                onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                                className={cn(onRowClick && "cursor-pointer")}
-                            >
-                                {row.getVisibleCells().map((cell) => (
-                                    <TableCell key={cell.id}>
-                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
+                    {showRows && table.getRowModel().rows.map(renderRow)}
 
                     {isEmpty && (
                         <TableRow className="hover:bg-transparent">

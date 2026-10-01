@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { useLoginPage } from "./Login.Container";
 
 const Login = () => {
-    "use no memo"; // React Hook Form + React Compiler: see README
+    "use no memo";
 
     const { form, onSubmit, isPending } = useLoginPage();
     const {

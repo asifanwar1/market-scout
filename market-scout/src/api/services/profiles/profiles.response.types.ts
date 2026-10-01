@@ -13,8 +13,6 @@ export type TProfileListItem = {
 
 export type TGetProfilesResponse = TListResponse<TProfileListItem>;
 
-// Alternative clauses (OR); the conditions inside one clause must all match (AND).
-// A condition is "key=value" (exact) or "key~regex" (case-insensitive).
 export type TOsmFilter = {
     clauses: string[][];
 };

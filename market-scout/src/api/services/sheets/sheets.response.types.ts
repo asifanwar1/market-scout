@@ -2,14 +2,12 @@ export type TSheetsSettings = {
     has_credentials: boolean;
     credentials_source: "saved" | "environment" | null;
     credentials_needs_reentry: boolean;
-    // Not a secret: the address the Google Sheet must be shared with.
     service_account_email: string | null;
     spreadsheet_id: string | null;
     spreadsheet_url: string | null;
     spreadsheet_title: string | null;
     worksheet_title: string;
     auto_sync: boolean;
-    // Key and spreadsheet both present.
     is_configured: boolean;
     is_syncing: boolean;
     last_synced_at: string | null;

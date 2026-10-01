@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import type { TCreateRunBody } from "@/api/services/runs/runs.request.types";
@@ -8,6 +8,34 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { getErrorMessage } from "@/lib/errorHandlerUtils";
 import { showToast } from "@/lib/toast";
 import { APP_ROUTES } from "@/routes/appRoutes";
+import { formatCount, formatUsd } from "@/utils/format.utils";
+import { SOURCE_KIND } from "@/constants/source.constants";
+import { CITY_URL_PARAM, ESTIMATE_DEBOUNCE_MS, MIN_PAID_CAP, NULL_BODY_KEY } from "./NewRun.constants";
+
+type TRunFormState = {
+    profileId: number;
+    cityIds: number[];
+    sourceKeys: string[];
+    segmentSlugs: string[];
+    allSegmentsCount: number;
+    enrichWebsites: boolean;
+    refresh: boolean;
+    maxPaid: number;
+    usesPaidSource: boolean;
+};
+
+const buildRunPayload = (form: TRunFormState): TCreateRunBody => ({
+    profile_id: form.profileId,
+    geography_ids: form.cityIds,
+    source_keys: form.sourceKeys,
+    segment_slugs: form.segmentSlugs.length === form.allSegmentsCount ? null : form.segmentSlugs,
+    enrich_websites: form.enrichWebsites,
+    refresh: form.refresh,
+    max_paid_requests: form.usesPaidSource && form.maxPaid >= MIN_PAID_CAP ? Math.floor(form.maxPaid) : null,
+});
+
+const toggleItem = (list: string[], value: string): string[] =>
+    list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 
 export const useNewRun = () => {
     const navigate = useNavigate();
@@ -22,16 +50,14 @@ export const useNewRun = () => {
 
     const { data: geographyTree = [] } = useGetGeographyTree();
     const { data: sourcesData } = useGetSources();
-    const discoverySources = (sourcesData?.data ?? []).filter((source) => source.kind === "discovery");
-    const enrichmentSource = (sourcesData?.data ?? []).find((source) => source.kind === "enrichment");
+    const discoverySources = (sourcesData?.data ?? []).filter((source) => source.kind === SOURCE_KIND.DISCOVERY);
+    const enrichmentSource = (sourcesData?.data ?? []).find((source) => source.kind === SOURCE_KIND.ENRICHMENT);
 
-    // null means "the default": every segment; the free sources that are switched on.
     const [chosenSegments, setChosenSegments] = useState<string[] | null>(null);
     const [chosenSources, setChosenSources] = useState<string[] | null>(null);
-    // "Search here" on the Insights page arrives with the city already chosen (?city=12).
     const [cityIds, setCityIds] = useState<number[]>(() =>
         searchParams
-            .getAll("city")
+            .getAll(CITY_URL_PARAM)
             .map(Number)
             .filter((id) => Number.isInteger(id) && id > 0),
     );
@@ -40,7 +66,6 @@ export const useNewRun = () => {
     const [maxPaid, setMaxPaid] = useState("");
     const [showConfirm, setShowConfirm] = useState(false);
 
-    // Paid sources are never ticked for you: spending money should be a deliberate act.
     const sourceKeys =
         chosenSources ??
         discoverySources.filter((source) => source.is_available && !source.is_paid).map((source) => source.key);
@@ -48,26 +73,26 @@ export const useNewRun = () => {
     const usesPaidSource = discoverySources.some((source) => source.is_paid && sourceKeys.includes(source.key));
     const enrichmentAvailable = enrichmentSource?.is_available ?? false;
 
-    const cap = Number(maxPaid);
+    const hasSelection = Boolean(profileId) && cityIds.length > 0 && sourceKeys.length > 0 && segmentSlugs.length > 0;
     const body: TCreateRunBody | null =
-        profileId && cityIds.length > 0 && sourceKeys.length > 0 && segmentSlugs.length > 0
-            ? {
-                  profile_id: profileId,
-                  geography_ids: cityIds,
-                  source_keys: sourceKeys,
-                  // Sending null (not the full list) lets a segment added to the profile later be picked up.
-                  segment_slugs: segmentSlugs.length === segments.length ? null : segmentSlugs,
-                  enrich_websites: enrichWebsites && enrichmentAvailable,
+        hasSelection && profileId
+            ? buildRunPayload({
+                  profileId,
+                  cityIds,
+                  sourceKeys,
+                  segmentSlugs,
+                  allSegmentsCount: segments.length,
+                  enrichWebsites: enrichWebsites && enrichmentAvailable,
                   refresh,
-                  max_paid_requests: usesPaidSource && cap >= 1 ? Math.floor(cap) : null,
-              }
+                  maxPaid: Number(maxPaid),
+                  usesPaidSource,
+              })
             : null;
 
-    // The estimate is asked for once the user pauses, and a run can only start on an estimate
-    // that matches exactly what is on screen.
     const bodyKey = JSON.stringify(body);
-    const settledKey = useDebouncedValue(bodyKey, 400);
-    const estimate = useEstimateRun(settledKey === "null" ? null : (JSON.parse(settledKey) as TCreateRunBody));
+    const settledKey = useDebouncedValue(bodyKey, ESTIMATE_DEBOUNCE_MS);
+    const estimateQuery = useEstimateRun(settledKey === NULL_BODY_KEY ? null : (JSON.parse(settledKey) as TCreateRunBody));
+    const estimate = estimateQuery.data;
     const isSettled = settledKey === bodyKey;
 
     const { mutateAsync: createRun, isPending: isStarting } = useCreateRun();
@@ -75,47 +100,79 @@ export const useNewRun = () => {
     const canStart =
         body !== null &&
         isSettled &&
-        !estimate.isFetching &&
-        !estimate.isError &&
-        !!estimate.data?.allowed &&
-        (estimate.data?.tasks_total ?? 0) > 0;
+        !estimateQuery.isFetching &&
+        !estimateQuery.isError &&
+        !!estimate?.allowed &&
+        (estimate?.tasks_total ?? 0) > 0;
 
-    const start = async () => {
+    const confirmStart = async () => {
         if (!body) return;
         const run = await createRun(body);
         showToast.success(`Run #${run.id} started`);
         navigate(APP_ROUTES.RUNS_DETAILS.replace(":id", String(run.id)));
     };
 
-    // A run that may spend money asks first; a free one just starts.
     const requestStart = () => {
-        if ((estimate.data?.paid_requests_max ?? 0) > 0) {
+        if ((estimate?.paid_requests_max ?? 0) > 0) {
             setShowConfirm(true);
             return;
         }
-        void start();
+        void confirmStart();
     };
 
-    const toggle = (list: string[], value: string) =>
-        list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+    const isEstimating = estimateQuery.isFetching || !isSettled;
+    const estimateError = estimateQuery.isError ? getErrorMessage(estimateQuery.error) : null;
+
+    const setProfileId = (id: number) => {
+        setChosenProfileId(id);
+        setChosenSegments(null);
+    };
+
+    const toggleSegment = (slug: string) => {
+        setChosenSegments(toggleItem(segmentSlugs, slug));
+    };
+
+    const toggleSource = (key: string) => {
+        setChosenSources(toggleItem(sourceKeys, key));
+    };
+
+    const onProfileChange = (value: string) => {
+        setProfileId(Number(value));
+    };
+
+    const onMaxPaidChange = (event: ChangeEvent<HTMLInputElement>) => {
+        setMaxPaid(event.target.value);
+    };
+
+    const hasMultipleProfiles = profiles.length > 1;
+    const hasNoProfiles = profiles.length === 0;
+    const profileValue = String(profileId);
+    const isEnrichmentOn = enrichWebsites && enrichmentAvailable;
+    const confirmDescription = estimate
+        ? `This run may make up to ${formatCount(estimate.paid_requests_max)} billable Google requests (about ${formatUsd(estimate.estimated_cost_usd)} at the configured rate). You can cancel it while it runs.`
+        : "";
+
+    const closeConfirm = () => {
+        setShowConfirm(false);
+    };
 
     return {
         profiles,
+        hasMultipleProfiles,
+        hasNoProfiles,
         isProfilesLoading,
         profileId,
-        setProfileId: (id: number) => {
-            setChosenProfileId(id);
-            setChosenSegments(null);
-        },
+        profileValue,
+        onProfileChange,
         segments,
         segmentSlugs,
-        toggleSegment: (slug: string) => setChosenSegments(toggle(segmentSlugs, slug)),
+        toggleSegment,
         geographyTree,
         cityIds,
         setCityIds,
         discoverySources,
         sourceKeys,
-        toggleSource: (key: string) => setChosenSources(toggle(sourceKeys, key)),
+        toggleSource,
         usesPaidSource,
         enrichmentAvailable,
         enrichWebsites,
@@ -123,16 +180,18 @@ export const useNewRun = () => {
         refresh,
         setRefresh,
         maxPaid,
-        setMaxPaid,
-        estimate: estimate.data,
-        isEstimating: estimate.isFetching || !isSettled,
-        estimateError: estimate.isError ? getErrorMessage(estimate.error) : null,
-        hasSelection: body !== null,
+        onMaxPaidChange,
+        isEnrichmentOn,
+        confirmDescription,
+        estimate,
+        isEstimating,
+        estimateError,
+        hasSelection,
         canStart,
         isStarting,
         requestStart,
-        confirmStart: start,
+        confirmStart,
         showConfirm,
-        setShowConfirm,
+        closeConfirm,
     };
 };

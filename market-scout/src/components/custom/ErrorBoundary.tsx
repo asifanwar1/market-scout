@@ -3,7 +3,6 @@ import { Link, isRouteErrorResponse, useRouteError } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/routes/appRoutes";
 
-// Rendered by React Router when a page throws while rendering or loading.
 const ErrorBoundary = () => {
     const error = useRouteError();
     const message = isRouteErrorResponse(error)

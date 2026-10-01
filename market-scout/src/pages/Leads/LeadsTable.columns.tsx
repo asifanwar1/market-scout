@@ -8,13 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getLeadStatus } from "@/constants";
 import { formatPhone, formatRelative } from "@/utils/format.utils";
+import { SELECT_COLUMN_WIDTH } from "./Leads.constants";
 
-// Sortable columns carry an accessorFn (TanStack only offers sorting on those); their ids
-// are the `sort` values the API understands.
-export const leadColumns: ColumnDef<TBusinessListItem, unknown>[] = [
+export const leadColumns: ColumnDef<TBusinessListItem>[] = [
     {
         id: "select",
-        size: 40,
+        size: SELECT_COLUMN_WIDTH,
         enableSorting: false,
         header: ({ table }) => (
             <Checkbox
@@ -31,7 +30,6 @@ export const leadColumns: ColumnDef<TBusinessListItem, unknown>[] = [
                 aria-label={`Select ${row.original.name}`}
                 checked={row.getIsSelected()}
                 onCheckedChange={(checked) => row.toggleSelected(checked === true)}
-                // Ticking a row must not also open it.
                 onClick={(event) => event.stopPropagation()}
             />
         ),

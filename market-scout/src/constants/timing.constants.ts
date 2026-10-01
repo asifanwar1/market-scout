@@ -1,0 +1,9 @@
+export const REQUEST_TIMEOUT_MS = 30000;
+export const REFERENCE_STALE_TIME = 1000 * 60 * 5;
+export const COPY_FEEDBACK_MS = 1500;
+export const DEFAULT_DEBOUNCE_MS = 300;
+export const FAST_POLL_MS = 1500;
+export const RUN_POLL_MS = 3000;
+export const OBJECT_URL_REVOKE_DELAY_MS = 1000;
+export const TOAST_AUTO_CLOSE_MS = 4000;
+export const MAX_QUERY_RETRIES = 2;

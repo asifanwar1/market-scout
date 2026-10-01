@@ -1,3 +1,4 @@
+import { ENDPOINTS } from "@/constants/endpoints.constants";
 import { request } from "@/api/client/request";
 import type { TApiArgs } from "@/api/types/common";
 import { HTTP_METHODS } from "@/constants";
@@ -12,14 +13,14 @@ import { SOURCE_QUERY_KEYS } from "./queryKeys";
 export const GetSources = async () => {
     return request<TGetSourcesResponse>({
         method: HTTP_METHODS.GET,
-        url: "/sources/",
+        url: ENDPOINTS.SOURCES.ROOT,
     });
 };
 
 export const UpdateSource = async ({ key, body }: TApiArgs<TUpdateSourceBody>) => {
     return request<TSource, TUpdateSourceBody>({
         method: HTTP_METHODS.PUT,
-        url: `/sources/${key}`,
+        url: ENDPOINTS.SOURCES.detail(key),
         body,
     });
 };
@@ -27,8 +28,7 @@ export const UpdateSource = async ({ key, body }: TApiArgs<TUpdateSourceBody>) =
 export const TestSource = async ({ key }: TApiArgs) => {
     return request<TSourceTestResponse>({
         method: HTTP_METHODS.POST,
-        url: `/sources/${key}/test`,
-        // A failed test is an answer ({ok: false}), not an error, but a 5xx here would be noise too.
+        url: ENDPOINTS.SOURCES.test(key),
         silent: true,
     });
 };

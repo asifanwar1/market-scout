@@ -1,55 +1,77 @@
 import { BarChart3 } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import type { TProfileListItem } from "@/api/services/profiles/profiles.response.types";
 import EmptyState from "@/components/custom/EmptyState";
 import Loading from "@/components/custom/Loading";
 import PageHeader from "@/components/custom/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { USER_ROLE } from "@/constants";
 import { APP_ROUTES } from "@/routes/appRoutes";
-import { useStore } from "@/store";
-import CoverageMatrix from "./CoverageMatrix";
-import GapsCard from "./GapsCard";
-import GrowthChart from "./GrowthChart";
+import CoverageMatrix from "./Components/CoverageMatrix";
+import GapsCard from "./Components/GapsCard";
+import GrowthChart from "./Components/GrowthChart";
+import MoversCard from "./Components/MoversCard";
+import OverviewCards from "./Components/OverviewCards";
+import SourceQualityCard from "./Components/SourceQualityCard";
+import { INSIGHTS_PAGE_DESCRIPTION, INSIGHTS_PAGE_TITLE } from "./Insights.constants";
 import { useInsightsPage } from "./Insights.Container";
-import MoversCard from "./MoversCard";
-import OverviewCards from "./OverviewCards";
-import SourceQualityCard from "./SourceQualityCard";
 
 const Insights = () => {
     const page = useInsightsPage();
-    const isAdmin = useStore((state) => state.user?.role === USER_ROLE.ADMIN);
-    const { profiles, isProfilesLoading, profileId, overview, coverage, gaps, timeline, sources, movers } = page;
+    const {
+        profiles,
+        profileValue,
+        hasProfile,
+        hasProfileChoice,
+        isAdmin,
+        isLoading,
+        isEmpty,
+        emptyDescription,
+        overview,
+        coverage,
+        gaps,
+        timeline,
+        sources,
+        movers,
+        onProfileChange,
+    } = page;
 
-    const isEmpty = overview.data?.total === 0 && !overview.isFetching;
+    const renderProfile = (profile: TProfileListItem) => (
+        <SelectItem key={profile.id} value={String(profile.id)}>
+            {profile.name}
+        </SelectItem>
+    );
+
+    const profilePicker = hasProfileChoice ? (
+        <Select value={profileValue} onValueChange={onProfileChange}>
+            <SelectTrigger className="w-52" aria-label="Profile">
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>{profiles.map(renderProfile)}</SelectContent>
+        </Select>
+    ) : undefined;
+
+    const startRunAction = isAdmin ? (
+        <Button asChild>
+            <Link to={APP_ROUTES.RUNS_NEW}>Start a run</Link>
+        </Button>
+    ) : undefined;
+
+    if (isLoading) {
+        return (
+            <div className="space-y-6">
+                <PageHeader title={INSIGHTS_PAGE_TITLE} description={INSIGHTS_PAGE_DESCRIPTION} actions={profilePicker} />
+                <Loading />
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
-            <PageHeader
-                title="Insights"
-                description="What the searches have found so far, where the market is still thin, and which source is pulling its weight."
-                actions={
-                    profiles.length > 1 && profileId !== undefined ? (
-                        <Select value={String(profileId)} onValueChange={(value) => page.setProfileId(Number(value))}>
-                            <SelectTrigger className="w-52" aria-label="Profile">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {profiles.map((profile) => (
-                                    <SelectItem key={profile.id} value={String(profile.id)}>
-                                        {profile.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    ) : undefined
-                }
-            />
+            <PageHeader title={INSIGHTS_PAGE_TITLE} description={INSIGHTS_PAGE_DESCRIPTION} actions={profilePicker} />
 
-            {isProfilesLoading || (profileId !== undefined && !overview.data) ? (
-                <Loading />
-            ) : profileId === undefined ? (
+            {!hasProfile ? (
                 <EmptyState
                     icon={BarChart3}
                     title="No profile to report on yet"
@@ -59,20 +81,7 @@ const Insights = () => {
                 <>
                     {overview.data && <OverviewCards overview={overview.data} />}
 
-                    {isEmpty && (
-                        <EmptyState
-                            icon={BarChart3}
-                            title="No leads yet"
-                            description={isAdmin ? "Start a run and this page fills in with coverage, gaps and source quality." : "This page fills in once an administrator has run a search."}
-                            action={
-                                isAdmin ? (
-                                    <Button asChild>
-                                        <Link to={APP_ROUTES.RUNS_NEW}>Start a run</Link>
-                                    </Button>
-                                ) : undefined
-                            }
-                        />
-                    )}
+                    {isEmpty && <EmptyState icon={BarChart3} title="No leads yet" description={emptyDescription} action={startRunAction} />}
 
                     <GrowthChart page={page} timeline={timeline.data} />
                     <div className="grid gap-6 xl:grid-cols-2">

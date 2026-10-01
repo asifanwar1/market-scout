@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import ConfirmationModal from "@/components/custom/ConfirmationModal";
 import Loading from "@/components/custom/Loading";
 import PageHeader from "@/components/custom/PageHeader";
+import Stat from "@/components/custom/Stat";
 import StatusBadge from "@/components/custom/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,16 +14,8 @@ import { APP_ROUTES } from "@/routes/appRoutes";
 import { formatCount, formatDateTime, pluralize } from "@/utils/format.utils";
 import { useImportDetails } from "./ImportDetails.Container";
 
-const Stat = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
-    <div>
-        <dt className="text-xs text-muted-foreground">{label}</dt>
-        <dd className="text-lg font-semibold tabular-nums">{value}</dd>
-        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-    </div>
-);
-
 const ImportDetails = () => {
-    const { record, isLoading, isError, isActive, showCancel, setShowCancel, handleCancel, isCancelling } = useImportDetails();
+    const { record, isLoading, isError, isActive, canCancel, showCancel, openCancel, closeCancel, handleCancel, isCancelling } = useImportDetails();
 
     if (isLoading) return <Loading />;
     if (isError || !record) {
@@ -41,6 +34,11 @@ const ImportDetails = () => {
     const skippedTotal = Object.values(record.skipped).reduce((sum, count) => sum + count, 0);
     const leadsLink = `${APP_ROUTES.LEADS}?source=${encodeURIComponent(record.source_key)}`;
 
+    const renderSkipReason = ([reason, count]: [string, number]) => (
+        <li key={reason}>
+            {pluralize(count, "row", "rows")} {SKIP_REASON_LABELS[reason] ?? reason} and {count === 1 ? "was" : "were"} set aside.
+        </li>
+    );
     return (
         <div className="space-y-6">
             <Button asChild variant="ghost" size="sm" className="-ml-2">
@@ -56,8 +54,8 @@ const ImportDetails = () => {
                 actions={
                     <>
                         <StatusBadge label={status?.label ?? record.status} className={status?.className} />
-                        {isActive && record.status !== "cancelling" && (
-                            <Button variant="outline" onClick={() => setShowCancel(true)}>
+                        {canCancel && (
+                            <Button variant="outline" onClick={openCancel}>
                                 <Ban />
                                 Cancel
                             </Button>
@@ -134,11 +132,7 @@ const ImportDetails = () => {
 
                     {skippedTotal > 0 && (
                         <ul className="space-y-1 border-t pt-4 text-sm text-muted-foreground">
-                            {Object.entries(record.skipped).map(([reason, count]) => (
-                                <li key={reason}>
-                                    {pluralize(count, "row", "rows")} {SKIP_REASON_LABELS[reason] ?? reason} and {count === 1 ? "was" : "were"} set aside.
-                                </li>
-                            ))}
+                            {Object.entries(record.skipped).map(renderSkipReason)}
                         </ul>
                     )}
                 </CardContent>
@@ -183,7 +177,7 @@ const ImportDetails = () => {
                 cancelText="Keep importing"
                 isLoading={isCancelling}
                 onConfirm={handleCancel}
-                onClose={() => setShowCancel(false)}
+                onClose={closeCancel}
             />
         </div>
     );

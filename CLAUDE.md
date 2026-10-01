@@ -161,4 +161,4 @@ Avoid `useMemo` and `useCallback`. Avoid `useEffect` too, except when there's a 
 ### Colors: theme-only
 No hardcoded colors in any component or style file — no inline hex/rgb/named colors. Every color is a token declared in `src/theme.css` (the theme file) and referenced from there, so light/dark mode both stay correct automatically.
 
-Files under `src/components/ui/` are shadcn/ui output; they follow the same comment, arrow-function and colour rules, but their structure stays as the library generates it.
+Files under `src/components/ui/` are shadcn/ui output; they follow the same comment, arrow-function and colour rules, but their structure stays as the library generates it. `src/vite-env.d.ts` keeps `interface` because augmenting `ImportMeta` needs declaration merging.

@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from "react";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { TOAST_AUTO_CLOSE_MS } from "@/constants/timing.constants";
 
 const ToastProvider = ({ children }: PropsWithChildren) => {
     return (
@@ -8,7 +9,7 @@ const ToastProvider = ({ children }: PropsWithChildren) => {
             {children}
             <ToastContainer
                 position="top-right"
-                autoClose={4000}
+                autoClose={TOAST_AUTO_CLOSE_MS}
                 hideProgressBar
                 closeOnClick
                 pauseOnFocusLoss

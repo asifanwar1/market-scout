@@ -1,3 +1,4 @@
+import { ENDPOINTS } from "@/constants/endpoints.constants";
 import { request } from "@/api/client/request";
 import type { TApiArgs, TQueryParams } from "@/api/types/common";
 import { HTTP_METHODS } from "@/constants";
@@ -12,13 +13,11 @@ const fileForm = (file: File, options?: TImportOptions) => {
     return form;
 };
 
-/** Read the file and get a first guess at which column is which. Nothing is stored. */
 export const PreviewImport = async ({ file }: { file: File }) => {
     return request<TImportPreview, FormData>({
         method: HTTP_METHODS.POST,
-        url: "/imports/preview",
+        url: ENDPOINTS.IMPORTS.PREVIEW,
         body: fileForm(file),
-        // A file the server cannot read is explained on the screen, not in a toast.
         silent: true,
     });
 };
@@ -26,7 +25,7 @@ export const PreviewImport = async ({ file }: { file: File }) => {
 export const CreateImport = async ({ file, options }: { file: File; options: TImportOptions }) => {
     return request<TImport, FormData>({
         method: HTTP_METHODS.POST,
-        url: "/imports/",
+        url: ENDPOINTS.IMPORTS.ROOT,
         body: fileForm(file, options),
     });
 };
@@ -34,7 +33,7 @@ export const CreateImport = async ({ file, options }: { file: File; options: TIm
 export const GetImports = async (params?: TGetImportsParams) => {
     return request<TGetImportsResponse>({
         method: HTTP_METHODS.GET,
-        url: "/imports/",
+        url: ENDPOINTS.IMPORTS.ROOT,
         params: params as TQueryParams,
     });
 };
@@ -42,14 +41,14 @@ export const GetImports = async (params?: TGetImportsParams) => {
 export const GetImport = async ({ id }: TApiArgs) => {
     return request<TImport>({
         method: HTTP_METHODS.GET,
-        url: `/imports/${id}`,
+        url: ENDPOINTS.IMPORTS.detail(id),
     });
 };
 
 export const CancelImport = async ({ id }: TApiArgs) => {
     return request<TImport>({
         method: HTTP_METHODS.POST,
-        url: `/imports/${id}/cancel`,
+        url: ENDPOINTS.IMPORTS.cancel(id),
     });
 };
 

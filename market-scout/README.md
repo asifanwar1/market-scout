@@ -73,7 +73,7 @@ src/
 └── utils/
 ```
 
-Pages follow the pulse-store pattern: `Page.tsx` renders, `Page.Container.ts` holds the state, queries and handlers.
+Each page is a folder: `Page.tsx` only renders, `Page.Container.ts` holds the state, queries and handlers, `Page.constants.ts` and `Page.types.ts` its constants and types, `index.ts` re-exports it and `Components/` holds what only that page uses. The rules (no comments, constants not literals, arrow functions, no inline JSX in `.map()`) are in the repo's `CLAUDE.md`.
 
 ## How sign-in works
 

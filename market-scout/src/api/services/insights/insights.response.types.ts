@@ -18,7 +18,6 @@ export type TCoverageCity = {
     city: string;
     province: string | null;
     total: number;
-    // Segment slug -> leads ("unclassified" for leads with no segment).
     counts: Record<string, number>;
 };
 
@@ -80,7 +79,6 @@ export type TMover = {
     rating: number | null;
     review_count: number;
     review_change: number;
-    // The search before the latest one, which the change is measured against.
     previous_seen_at: string;
     latest_seen_at: string;
 };

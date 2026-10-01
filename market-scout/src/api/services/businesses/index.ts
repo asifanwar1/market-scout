@@ -1,3 +1,4 @@
+import { ENDPOINTS } from "@/constants/endpoints.constants";
 import { request } from "@/api/client/request";
 import type { TApiArgs, TQueryParams, WithSignal } from "@/api/types/common";
 import { HTTP_METHODS } from "@/constants";
@@ -23,7 +24,7 @@ export const GetBusinesses = async (
 
     return request<TGetBusinessesResponse>({
         method: HTTP_METHODS.GET,
-        url: "/businesses/",
+        url: ENDPOINTS.BUSINESSES.ROOT,
         params: urlParams as TQueryParams,
         signal,
     });
@@ -32,9 +33,7 @@ export const GetBusinesses = async (
 export const GetBusiness = async ({ id }: TApiArgs) => {
     return request<TBusinessDetail>({
         method: HTTP_METHODS.GET,
-        url: `/businesses/${id}`,
-        // A lead can legitimately vanish while its panel is open (someone marked it do not
-        // contact); the panel explains that inline, so no error toast on top.
+        url: ENDPOINTS.BUSINESSES.detail(id),
         silent: true,
     });
 };
@@ -45,7 +44,7 @@ export const UpdateBusiness = async ({
 }: TApiArgs<TUpdateBusinessBody>) => {
     return request<TBusinessDetail, TUpdateBusinessBody>({
         method: HTTP_METHODS.PATCH,
-        url: `/businesses/${id}`,
+        url: ENDPOINTS.BUSINESSES.detail(id),
         body,
     });
 };
@@ -53,7 +52,7 @@ export const UpdateBusiness = async ({
 export const BulkUpdateBusinesses = async (body: TBulkUpdateBody) => {
     return request<TBulkUpdateResponse, TBulkUpdateBody>({
         method: HTTP_METHODS.POST,
-        url: "/businesses/bulk-update",
+        url: ENDPOINTS.BUSINESSES.BULK_UPDATE,
         body,
     });
 };
@@ -61,7 +60,7 @@ export const BulkUpdateBusinesses = async (body: TBulkUpdateBody) => {
 export const GetAssignees = async () => {
     return request<TAssignedUser[]>({
         method: HTTP_METHODS.GET,
-        url: "/businesses/assignees",
+        url: ENDPOINTS.BUSINESSES.ASSIGNEES,
     });
 };
 
@@ -71,7 +70,7 @@ export const MarkDoNotContact = async ({
 }: TApiArgs<TDoNotContactBody>) => {
     return request<TDoNotContactResponse, TDoNotContactBody>({
         method: HTTP_METHODS.POST,
-        url: `/businesses/${id}/do-not-contact`,
+        url: ENDPOINTS.BUSINESSES.doNotContact(id),
         body: body ?? {},
     });
 };

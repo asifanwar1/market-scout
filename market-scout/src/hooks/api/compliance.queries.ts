@@ -26,7 +26,6 @@ export const useGetDoNotContact = (params: TGetDoNotContactParams) => {
     });
 };
 
-// Blocking hides leads and lifting a block brings them back, so the lead lists refresh too.
 const refreshCompliance = () =>
     invalidateMultiple(queryClient, [
         [COMPLIANCE_QUERY_KEYS.DO_NOT_CONTACT],

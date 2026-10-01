@@ -1,3 +1,4 @@
+import { ENDPOINTS } from "@/constants/endpoints.constants";
 import { request } from "@/api/client/request";
 import type { TApiArgs, TListResponse, TQueryParams } from "@/api/types/common";
 import { HTTP_METHODS } from "@/constants";
@@ -10,7 +11,6 @@ export type TGetDoNotContactParams = {
     search?: string;
 };
 
-// Exactly one of phone / email.
 export type TAddDoNotContactBody = {
     phone?: string;
     email?: string;
@@ -20,7 +20,7 @@ export type TAddDoNotContactBody = {
 export const GetDoNotContact = async (params?: TGetDoNotContactParams) => {
     return request<TListResponse<TDoNotContactResponse>>({
         method: HTTP_METHODS.GET,
-        url: "/compliance/do-not-contact",
+        url: ENDPOINTS.COMPLIANCE.DO_NOT_CONTACT,
         params: params as TQueryParams,
     });
 };
@@ -28,7 +28,7 @@ export const GetDoNotContact = async (params?: TGetDoNotContactParams) => {
 export const AddDoNotContact = async (body: TAddDoNotContactBody) => {
     return request<TDoNotContactResponse, TAddDoNotContactBody>({
         method: HTTP_METHODS.POST,
-        url: "/compliance/do-not-contact",
+        url: ENDPOINTS.COMPLIANCE.DO_NOT_CONTACT,
         body,
     });
 };

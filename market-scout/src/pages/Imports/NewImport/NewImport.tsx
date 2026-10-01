@@ -6,14 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_ROUTES } from "@/routes/appRoutes";
 import { formatCount } from "@/utils/format.utils";
-import ColumnsStep from "./ColumnsStep";
-import FileStep from "./FileStep";
+import ColumnsStep from "./Components/ColumnsStep";
+import FileStep from "./Components/FileStep";
 import { useNewImport } from "./NewImport.Container";
-import SettingsStep from "./SettingsStep";
+import SettingsStep from "./Components/SettingsStep";
 
 const NewImport = () => {
     const page = useNewImport();
-    const { preview, mapping, problem, isStarting, start } = page;
+    const { preview, hasPreview, mapping, problem, isStarting, isStartDisabled, start } = page;
 
     return (
         <div className="space-y-6">
@@ -32,7 +32,7 @@ const NewImport = () => {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="min-w-0 space-y-6">
                     <FileStep page={page} />
-                    {preview && (
+                    {hasPreview && preview && (
                         <>
                             <ColumnsStep preview={preview} mapping={mapping} onChange={page.setMapping} />
                             <SettingsStep page={page} />
@@ -45,7 +45,7 @@ const NewImport = () => {
                         <CardTitle>Ready to import?</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {!preview ? (
+                        {!hasPreview || !preview ? (
                             <p className="text-sm text-muted-foreground">Choose a file to begin.</p>
                         ) : (
                             <>
@@ -70,7 +70,7 @@ const NewImport = () => {
                                 )}
                             </>
                         )}
-                        <Button className="w-full" size="lg" disabled={!preview || problem !== null || isStarting} onClick={start}>
+                        <Button className="w-full" size="lg" disabled={isStartDisabled} onClick={start}>
                             {isStarting ? <Loader2 className="animate-spin" /> : <Play />}
                             Start import
                         </Button>

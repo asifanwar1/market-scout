@@ -1,30 +1,28 @@
 import Loading from "@/components/custom/Loading";
 import PageHeader from "@/components/custom/PageHeader";
-import CredentialsCard from "./CredentialsCard";
-import SetupGuide from "./SetupGuide";
+import CredentialsCard from "./Components/CredentialsCard";
+import SetupGuide from "./Components/SetupGuide";
+import SpreadsheetCard from "./Components/SpreadsheetCard";
+import SyncStatusCard from "./Components/SyncStatusCard";
+import { SHEETS_PAGE_DESCRIPTION, SHEETS_PAGE_TITLE } from "./Sheets.constants";
 import { useSheetsPage } from "./Sheets.Container";
-import SpreadsheetCard from "./SpreadsheetCard";
-import SyncStatusCard from "./SyncStatusCard";
 
 const Sheets = () => {
-    const { settings, isPending, isSyncing, syncNow } = useSheetsPage();
+    const { settings, isReady, isSyncing, isSetupOpenByDefault, syncNow } = useSheetsPage();
 
     return (
         <div className="max-w-4xl space-y-6">
-            <PageHeader
-                title="Google Sheet"
-                description="A live copy of your leads in Google Sheets, for anyone who prefers a spreadsheet. Everyone can also download the leads as a CSV file from the Leads page."
-            />
+            <PageHeader title={SHEETS_PAGE_TITLE} description={SHEETS_PAGE_DESCRIPTION} />
 
-            {isPending || !settings ? (
-                <Loading />
-            ) : (
+            {isReady && settings ? (
                 <>
                     <SyncStatusCard settings={settings} isSyncing={isSyncing} onSync={syncNow} />
-                    <SetupGuide defaultOpen={!settings.is_configured} />
+                    <SetupGuide defaultOpen={isSetupOpenByDefault} />
                     <CredentialsCard settings={settings} />
                     <SpreadsheetCard settings={settings} />
                 </>
+            ) : (
+                <Loading />
             )}
         </div>
     );

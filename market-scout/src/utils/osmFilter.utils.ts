@@ -1,9 +1,6 @@
 import type { TOsmFilter } from "@/api/services/profiles/profiles.response.types";
 
-// These mirror the backend's validation, so a mistake shows up next to the field instead of
-// as a rejected save. The backend still has the last word.
 const CONDITION = /^([A-Za-z0-9_:]+)(=|~)(.+)$/;
-// Values end up inside an Overpass query: no quotes, brackets, backslashes or semicolons.
 const SAFE_VALUE = /^[\p{L}\p{N}_\s|.\-&()+*?]+$/u;
 const MAX_CLAUSES = 10;
 const MAX_CONDITIONS = 5;
@@ -15,14 +12,6 @@ export type TParsedFilter =
     | { ok: true; filter: TOsmFilter | null }
     | { ok: false; error: string };
 
-/**
- * One alternative per line; conditions on a line are joined with AND.
- *
- *   shop=electrical AND name~solar|inverter
- *   name~solar
- *
- * means (electrical shops named solar or inverter) OR (anything named solar).
- */
 export const parseOsmFilterText = (text: string): TParsedFilter => {
     const lines = text
         .split("\n")
@@ -70,14 +59,11 @@ const validateCondition = (condition: string): string | null => {
 export const formatOsmFilter = (filter: TOsmFilter | null | undefined): string =>
     (filter?.clauses ?? []).map((clause) => clause.join(" AND ")).join("\n");
 
-// ---- name patterns (segment match rules) ------------------------------------
-
 const MAX_PATTERNS = 50;
 const MAX_PATTERN_LENGTH = 100;
 
 export type TParsedPatterns = { ok: true; patterns: string[] } | { ok: false; error: string };
 
-/** One regular expression per line, matched case-insensitively against a business's name. */
 export const parsePatternsText = (text: string): TParsedPatterns => {
     const patterns = text
         .split("\n")

@@ -14,7 +14,6 @@ export type TCreateUserBody = {
     password: string;
 };
 
-// Send only what changed. Changing role, active state or password ends that user's sessions.
 export type TUpdateUserBody = {
     full_name?: string;
     role?: UserRole;

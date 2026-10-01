@@ -6,8 +6,8 @@ import { ACTIVE_IMPORT_STATUSES } from "@/constants/import-status.constants";
 import { queryClient } from "@/lib/queryClient";
 import { useStore } from "@/store";
 import { invalidateMultiple } from "@/utils/common.utils";
+import { FAST_POLL_MS } from "@/constants/timing.constants";
 
-const POLL_MS = 1500;
 
 export const useGetImports = (params: TGetImportsParams) => {
     const isAuthenticated = useStore((state) => state.isAuthenticated);
@@ -17,9 +17,8 @@ export const useGetImports = (params: TGetImportsParams) => {
         enabled: isAuthenticated,
         placeholderData: keepPreviousData,
         queryFn: () => GetImports(params),
-        // Keep the list live while something is importing.
         refetchInterval: (query) =>
-            query.state.data?.data.some((item) => ACTIVE_IMPORT_STATUSES.includes(item.status)) ? POLL_MS : false,
+            query.state.data?.data.some((item) => ACTIVE_IMPORT_STATUSES.includes(item.status)) ? FAST_POLL_MS : false,
     });
 };
 
@@ -29,7 +28,7 @@ export const useGetImport = (id?: number) =>
         enabled: !!id,
         queryFn: () => GetImport({ id: id as number }),
         refetchInterval: (query) =>
-            query.state.data && ACTIVE_IMPORT_STATUSES.includes(query.state.data.status) ? POLL_MS : false,
+            query.state.data && ACTIVE_IMPORT_STATUSES.includes(query.state.data.status) ? FAST_POLL_MS : false,
     });
 
 export const usePreviewImport = () => useMutation({ mutationFn: PreviewImport });

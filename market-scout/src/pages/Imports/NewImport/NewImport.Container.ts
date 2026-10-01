@@ -5,10 +5,32 @@ import type { TColumnMapping, TImportOptions } from "@/api/services/imports/impo
 import type { TImportPreview } from "@/api/services/imports/imports.response.types";
 import { useGetGeographyTree, useGetProfile, useGetProfiles, useGetSources } from "@/hooks/api/catalog.queries";
 import { useCreateImport, usePreviewImport } from "@/hooks/api/imports.queries";
+import { GENERIC_ERROR_MESSAGE } from "@/constants/Validation-messages.constants";
 import { getBlobErrorMessage } from "@/utils/download.utils";
 import { APP_ROUTES } from "@/routes/appRoutes";
 import { showToast } from "@/lib/toast";
+import { OVERTURE_SOURCE_KEY } from "@/constants/source.constants";
 import { EMPTY_MAPPING, defaultLabel, importProblem, mappingFromSuggestion } from "./importForm";
+
+type TImportFormState = {
+    label: string;
+    profileId: number;
+    segmentSlug: string | null;
+    cityId: number | null;
+    requireContact: boolean;
+    lookupContacts: boolean;
+    mapping: TColumnMapping;
+};
+
+const buildImportPayload = (form: TImportFormState): TImportOptions => ({
+    label: form.label.trim(),
+    profile_id: form.profileId,
+    segment_slug: form.segmentSlug,
+    default_geography_id: form.cityId,
+    require_contact: form.requireContact,
+    lookup_contacts: form.lookupContacts,
+    mapping: form.mapping,
+});
 
 export const useNewImport = () => {
     const navigate = useNavigate();
@@ -25,12 +47,11 @@ export const useNewImport = () => {
     const [segmentSlug, setSegmentSlug] = useState<string | null>(null);
     const [cityId, setCityId] = useState<number | null>(null);
     const [requireContact, setRequireContact] = useState(true);
-    const [lookupContacts, setLookupContacts] = useState(false);
+    const [isLookupRequested, setLookupContacts] = useState(false);
     const { data: sourcesData } = useGetSources();
-    // Looking phones up needs the Overture data on the server; offer it only when it is there.
-    const overture = sourcesData?.data.find((source) => source.key === "overture");
+    const overture = sourcesData?.data.find((source) => source.key === OVERTURE_SOURCE_KEY);
     const canLookUp = overture?.is_available ?? false;
-    const lookupOn = lookupContacts && canLookUp;
+    const lookupContacts = isLookupRequested && canLookUp;
 
     const { data: profilesData } = useGetProfiles();
     const profiles = profilesData?.data ?? [];
@@ -49,7 +70,7 @@ export const useNewImport = () => {
             setLabel(defaultLabel(chosen.name));
         } catch (error) {
             setFile(null);
-            setFileError(await getBlobErrorMessage(error));
+            setFileError(error instanceof Error ? await getBlobErrorMessage(error) : GENERIC_ERROR_MESSAGE);
         }
     };
 
@@ -59,19 +80,27 @@ export const useNewImport = () => {
         setFileError(null);
     };
 
-    const problem = importProblem({ mapping, label, profileId, requireContact, lookupContacts: lookupOn });
+    const problem = importProblem({ mapping, label, profileId, requireContact, lookupContacts });
+    const hasPreview = preview !== null;
+    const isStartDisabled = !hasPreview || problem !== null || isStarting;
+    const segments = profile?.segments ?? [];
+
+    const setProfileId = (id: number) => {
+        setChosenProfileId(id);
+        setSegmentSlug(null);
+    };
 
     const start = async () => {
         if (!file || profileId === undefined || problem) return;
-        const options: TImportOptions = {
-            label: label.trim(),
-            profile_id: profileId,
-            segment_slug: segmentSlug,
-            default_geography_id: cityId,
-            require_contact: requireContact,
-            lookup_contacts: lookupOn,
+        const options = buildImportPayload({
+            label,
+            profileId,
+            segmentSlug,
+            cityId,
+            requireContact,
+            lookupContacts,
             mapping,
-        };
+        });
         const created = await createImport({ file, options });
         showToast.success(`Importing ${created.rows_to_import} rows from ${created.label}`);
         navigate(APP_ROUTES.IMPORTS_DETAILS.replace(":id", String(created.id)));
@@ -80,6 +109,7 @@ export const useNewImport = () => {
     return {
         file,
         preview,
+        hasPreview,
         fileError,
         isReading,
         chooseFile,
@@ -90,11 +120,8 @@ export const useNewImport = () => {
         setLabel,
         profiles,
         profileId,
-        setProfileId: (id: number) => {
-            setChosenProfileId(id);
-            setSegmentSlug(null); // another profile has other business types
-        },
-        segments: profile?.segments ?? [],
+        setProfileId,
+        segments,
         segmentSlug,
         setSegmentSlug,
         geographyTree,
@@ -102,11 +129,12 @@ export const useNewImport = () => {
         setCityId,
         requireContact,
         setRequireContact,
-        lookupContacts: lookupOn,
+        lookupContacts,
         setLookupContacts,
         canLookUp,
         problem,
         isStarting,
+        isStartDisabled,
         start,
     };
 };

@@ -30,6 +30,32 @@ const AppSidebar = ({ onLogoutClick }: TAppSidebarProps) => {
         (group) => !group.roles || (user && group.roles.includes(user.role)),
     );
 
+    const renderGroup = (group: (typeof visibleGroups)[number]) => {
+        const renderItem = (item: (typeof group.items)[number]) => (
+            <SidebarMenuItem key={item.path}>
+                <SidebarMenuButton
+                    asChild
+                    tooltip={item.label}
+                    isActive={pathname.startsWith(item.path)}
+                >
+                    <Link to={item.path}>
+                        <item.icon />
+                        <span>{item.label}</span>
+                    </Link>
+                </SidebarMenuButton>
+            </SidebarMenuItem>
+        );
+        return (
+            <SidebarGroup key={group.label}>
+                <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+                <SidebarGroupContent>
+                    <SidebarMenu>
+                        {group.items.map(renderItem)}
+                    </SidebarMenu>
+                </SidebarGroupContent>
+            </SidebarGroup>
+        );
+    };
     return (
         <Sidebar collapsible="icon">
             <SidebarHeader>
@@ -47,29 +73,7 @@ const AppSidebar = ({ onLogoutClick }: TAppSidebarProps) => {
             </SidebarHeader>
 
             <SidebarContent>
-                {visibleGroups.map((group) => (
-                    <SidebarGroup key={group.label}>
-                        <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-                        <SidebarGroupContent>
-                            <SidebarMenu>
-                                {group.items.map((item) => (
-                                    <SidebarMenuItem key={item.path}>
-                                        <SidebarMenuButton
-                                            asChild
-                                            tooltip={item.label}
-                                            isActive={pathname.startsWith(item.path)}
-                                        >
-                                            <Link to={item.path}>
-                                                <item.icon />
-                                                <span>{item.label}</span>
-                                            </Link>
-                                        </SidebarMenuButton>
-                                    </SidebarMenuItem>
-                                ))}
-                            </SidebarMenu>
-                        </SidebarGroupContent>
-                    </SidebarGroup>
-                ))}
+                {visibleGroups.map(renderGroup)}
             </SidebarContent>
 
             <SidebarFooter>

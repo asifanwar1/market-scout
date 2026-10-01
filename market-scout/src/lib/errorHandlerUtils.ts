@@ -1,11 +1,11 @@
+import { isAxiosError } from "axios";
+
 import { showToast } from "./toast";
 import {
     GENERIC_ERROR_MESSAGE,
     NETWORK_ERROR_MESSAGE,
 } from "@/constants/Validation-messages.constants";
 
-// FastAPI answers with { detail: "message" } for our own errors and
-// { detail: [{ msg, loc }] } for request-validation errors.
 type TBackendErrorData = {
     detail?: string | Array<{ msg?: string; loc?: Array<string | number> }>;
 };
@@ -30,29 +30,16 @@ export const extractErrorMessage = (
     return fallbackMessage;
 };
 
-export const getErrorMessage = (error: unknown): string => {
-    if (typeof error === "object" && error !== null && "response" in error) {
-        const response = (error as { response?: { data?: TBackendErrorData } })
-            .response;
-        return extractErrorMessage(response?.data);
+export const getErrorMessage = (error: Error): string => {
+    if (isAxiosError<TBackendErrorData>(error)) {
+        return extractErrorMessage(error.response?.data);
     }
-    if (error instanceof Error) return error.message;
-    return GENERIC_ERROR_MESSAGE;
+    return error.message || GENERIC_ERROR_MESSAGE;
 };
 
-/** Shows a toast for a failed request. Sign-out on 401 is handled in the interceptor. */
-export const networkRequestErrorHandler = (error: unknown): void => {
-    if (typeof error === "object" && error !== null && "response" in error) {
-        const response = (error as { response?: unknown }).response;
-        if (response) {
-            showToast.error(getErrorMessage(error));
-            return;
-        }
-        showToast.error(NETWORK_ERROR_MESSAGE);
-        return;
-    }
-    if (typeof error === "object" && error !== null && "request" in error) {
-        showToast.error(NETWORK_ERROR_MESSAGE);
+export const networkRequestErrorHandler = (error: Error): void => {
+    if (isAxiosError<TBackendErrorData>(error)) {
+        showToast.error(error.response ? getErrorMessage(error) : NETWORK_ERROR_MESSAGE);
         return;
     }
     showToast.error(getErrorMessage(error));

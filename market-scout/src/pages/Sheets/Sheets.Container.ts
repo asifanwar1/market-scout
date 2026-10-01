@@ -4,10 +4,8 @@ import { useGetSheetsSettings, useSyncSheets } from "@/hooks/api/sheets.queries"
 import { showToast } from "@/lib/toast";
 import { pluralize } from "@/utils/format.utils";
 
-const POLL_MS = 1500;
-// A sync of a very large sheet still finishes well inside this; after it we stop watching (the
-// page keeps polling by itself while the server says it is syncing).
-const MAX_POLLS = 200;
+import { FAST_POLL_MS } from "@/constants/timing.constants";
+import { MAX_POLLS } from "./Sheets.constants";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -16,14 +14,12 @@ export const useSheetsPage = () => {
     const { mutateAsync: startSync } = useSyncSheets();
     const [isStarting, setIsStarting] = useState(false);
 
-    // "Sync now" returns at once and the work carries on in the background: watch it finish so
-    // the person gets an answer instead of a spinner that never says what happened.
     const syncNow = async () => {
         setIsStarting(true);
         try {
             let result = await startSync();
             for (let poll = 0; result.is_syncing && poll < MAX_POLLS; poll++) {
-                await sleep(POLL_MS);
+                await sleep(FAST_POLL_MS);
                 result = (await refetch()).data ?? result;
             }
             if (result.last_sync_ok) {
@@ -36,10 +32,15 @@ export const useSheetsPage = () => {
         }
     };
 
+    const isSyncing = Boolean(settings?.is_syncing) || isStarting;
+    const isReady = !isPending && Boolean(settings);
+    const isSetupOpenByDefault = !settings?.is_configured;
+
     return {
         settings,
-        isPending,
-        isSyncing: Boolean(settings?.is_syncing) || isStarting,
+        isReady,
+        isSyncing,
+        isSetupOpenByDefault,
         syncNow,
     };
 };

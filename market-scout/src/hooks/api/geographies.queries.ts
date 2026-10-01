@@ -14,7 +14,6 @@ import type {
 import { queryClient } from "@/lib/queryClient";
 import { invalidateMultiple } from "@/utils/common.utils";
 
-// Lead rows show their city and province, so a rename or delete must refresh them too.
 const refreshGeographies = () =>
     invalidateMultiple(queryClient, [
         [GEOGRAPHY_QUERY_KEYS.TREE],

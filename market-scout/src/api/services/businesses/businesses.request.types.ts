@@ -6,7 +6,6 @@ export type TSortDirection = "asc" | "desc";
 export type TBusinessFilters = {
     profile_id?: number;
     segment?: string;
-    // A city, or a province / the country for every city inside.
     geography_id?: number;
     has_phone?: boolean;
     whatsapp_likely?: boolean;

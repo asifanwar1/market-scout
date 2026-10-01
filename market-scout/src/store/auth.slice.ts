@@ -2,17 +2,17 @@ import type { StateCreator } from "zustand";
 import type { UserModel } from "@/api/models/user.model";
 import { sliceResetFns } from "./store";
 
-export interface AuthStateType {
+export type AuthStateType = {
     isAuthenticated: boolean;
     token: string | null;
     refreshToken: string | null;
     user: UserModel | null;
-}
+};
 
-export interface AuthSliceType extends AuthStateType {
+export type AuthSliceType = AuthStateType & {
     setAuth: (auth: Partial<AuthStateType>) => void;
     clearAuth: () => void;
-}
+};
 
 export const initialAuthState: AuthStateType = {
     isAuthenticated: false,

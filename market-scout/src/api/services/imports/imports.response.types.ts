@@ -28,9 +28,7 @@ export type TImport = {
     rows_to_import: number;
     rows_done: number;
     progress_percent: number;
-    // Why rows were set aside before importing, e.g. { no_name: 3, no_contact: 12 }.
     skipped: Record<string, number>;
-    // found, new, merged, blocked, with_phone, with_website, with_email, errors, no_city, looked_up
     stats: Record<string, number>;
     error: string | null;
     created_by_id: number | null;

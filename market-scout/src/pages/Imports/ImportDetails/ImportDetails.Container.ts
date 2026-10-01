@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { ACTIVE_IMPORT_STATUSES } from "@/constants/import-status.constants";
+import { ACTIVE_IMPORT_STATUSES, IMPORT_STATUS } from "@/constants/import-status.constants";
 import { useCancelImport, useGetImport } from "@/hooks/api/imports.queries";
 import { showToast } from "@/lib/toast";
 
@@ -15,6 +15,14 @@ export const useImportDetails = () => {
     const { mutateAsync: cancelImport, isPending: isCancelling } = useCancelImport();
     const [showCancel, setShowCancel] = useState(false);
 
+    const openCancel = () => {
+        setShowCancel(true);
+    };
+
+    const closeCancel = () => {
+        setShowCancel(false);
+    };
+
     const handleCancel = async () => {
         if (!importId) return;
         await cancelImport(importId);
@@ -22,5 +30,19 @@ export const useImportDetails = () => {
         setShowCancel(false);
     };
 
-    return { record, isLoading: isPending, isError, isActive, showCancel, setShowCancel, handleCancel, isCancelling };
+    const isLoading = isPending;
+    const canCancel = isActive && record?.status !== IMPORT_STATUS.CANCELLING;
+
+    return {
+        record,
+        isLoading,
+        isError,
+        isActive,
+        canCancel,
+        showCancel,
+        openCancel,
+        closeCancel,
+        handleCancel,
+        isCancelling,
+    };
 };

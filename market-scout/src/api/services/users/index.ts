@@ -1,3 +1,4 @@
+import { ENDPOINTS } from "@/constants/endpoints.constants";
 import { request } from "@/api/client/request";
 import type { UserModel } from "@/api/models/user.model";
 import type { TApiArgs, TListResponse, TQueryParams } from "@/api/types/common";
@@ -12,7 +13,7 @@ import { USER_QUERY_KEYS } from "./queryKeys";
 export const GetUsers = async (params?: TGetUsersParams) => {
     return request<TListResponse<UserModel>>({
         method: HTTP_METHODS.GET,
-        url: "/users/",
+        url: ENDPOINTS.USERS.ROOT,
         params: params as TQueryParams,
     });
 };
@@ -20,7 +21,7 @@ export const GetUsers = async (params?: TGetUsersParams) => {
 export const CreateUser = async (body: TCreateUserBody) => {
     return request<UserModel, TCreateUserBody>({
         method: HTTP_METHODS.POST,
-        url: "/users/",
+        url: ENDPOINTS.USERS.ROOT,
         body,
     });
 };
@@ -28,7 +29,7 @@ export const CreateUser = async (body: TCreateUserBody) => {
 export const UpdateUser = async ({ id, body }: TApiArgs<TUpdateUserBody>) => {
     return request<UserModel, TUpdateUserBody>({
         method: HTTP_METHODS.PUT,
-        url: `/users/${id}`,
+        url: ENDPOINTS.USERS.detail(id),
         body,
     });
 };

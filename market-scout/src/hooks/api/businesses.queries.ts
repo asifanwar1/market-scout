@@ -22,6 +22,7 @@ import type {
 import { queryClient } from "@/lib/queryClient";
 import { useStore } from "@/store";
 import { invalidateMultiple } from "@/utils/common.utils";
+import { REFERENCE_STALE_TIME } from "@/constants/timing.constants";
 
 export const useGetBusinesses = (
     params: TGetBusinessesParams,
@@ -32,7 +33,6 @@ export const useGetBusinesses = (
     return useQuery({
         queryKey: [BUSINESS_QUERY_KEYS.BUSINESSES, params],
         enabled: enabled && isAuthenticated,
-        // Keep the old rows on screen while the next page / filter loads.
         placeholderData: keepPreviousData,
         queryFn: ({ signal }) => GetBusinesses({ ...params, signal }),
     });
@@ -52,7 +52,7 @@ export const useGetAssignees = () => {
     return useQuery({
         queryKey: [BUSINESS_QUERY_KEYS.ASSIGNEES],
         enabled: isAuthenticated,
-        staleTime: 5 * 60 * 1000,
+        staleTime: REFERENCE_STALE_TIME,
         queryFn: GetAssignees,
     });
 };
@@ -68,7 +68,6 @@ export const useUpdateBusiness = () => {
         mutationFn: ({ id, body }: { id: number; body: TUpdateBusinessBody }) =>
             UpdateBusiness({ id, body }),
         onSuccess: async (updated) => {
-            // The response is the fresh detail; show it now, then refresh the lists behind it.
             queryClient.setQueryData(
                 [BUSINESS_QUERY_KEYS.BUSINESS, updated.id],
                 updated,

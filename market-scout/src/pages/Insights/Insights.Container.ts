@@ -1,7 +1,7 @@
 import { parseAsInteger, useQueryState } from "nuqs";
 import { useState } from "react";
 
-import type { TInsightBucket } from "@/api/services/insights/insights.response.types";
+import { USER_ROLE } from "@/constants";
 import { useGetProfiles } from "@/hooks/api/catalog.queries";
 import {
     useGetCoverage,
@@ -11,25 +11,27 @@ import {
     useGetSourcesQuality,
     useGetTimeline,
 } from "@/hooks/api/insights.queries";
-
-export const RANGES = [
-    { value: "30", label: "Last 30 days", days: 30, bucket: "day" as TInsightBucket },
-    { value: "90", label: "Last 3 months", days: 90, bucket: "week" as TInsightBucket },
-    { value: "365", label: "Last year", days: 365, bucket: "month" as TInsightBucket },
-];
-
-export const DEFAULT_GAP_THRESHOLD = 5;
+import { useStore } from "@/store";
+import {
+    DEFAULT_GAP_THRESHOLD,
+    DEFAULT_RANGE_INDEX,
+    EMPTY_ADMIN_DESCRIPTION,
+    EMPTY_SALES_DESCRIPTION,
+    MOVERS_DAYS,
+    PROFILE_URL_PARAM,
+    RANGES,
+} from "./Insights.constants";
 
 export const useInsightsPage = () => {
+    const isAdmin = useStore((state) => state.user?.role === USER_ROLE.ADMIN);
     const { data: profilesData, isPending: isProfilesLoading } = useGetProfiles();
     const profiles = profilesData?.data ?? [];
 
-    // The chosen profile lives in the URL so a view can be shared.
-    const [chosenProfile, setChosenProfile] = useQueryState("profile", parseAsInteger);
+    const [chosenProfile, setChosenProfile] = useQueryState(PROFILE_URL_PARAM, parseAsInteger);
     const profileId = chosenProfile ?? profiles[0]?.id;
 
-    const [rangeValue, setRangeValue] = useState(RANGES[1].value);
-    const range = RANGES.find((item) => item.value === rangeValue) ?? RANGES[1];
+    const [rangeValue, setRangeValue] = useState(RANGES[DEFAULT_RANGE_INDEX].value);
+    const range = RANGES.find((item) => item.value === rangeValue) ?? RANGES[DEFAULT_RANGE_INDEX];
     const [threshold, setThreshold] = useState(DEFAULT_GAP_THRESHOLD);
 
     const ready = profileId !== undefined;
@@ -38,13 +40,33 @@ export const useInsightsPage = () => {
     const gaps = useGetGaps(profileId, threshold);
     const timeline = useGetTimeline(profileId, range.days, range.bucket, ready);
     const sources = useGetSourcesQuality(profileId, ready);
-    const movers = useGetMovers(profileId, 30, ready);
+    const movers = useGetMovers(profileId, MOVERS_DAYS, ready);
+
+    const hasProfile = profileId !== undefined;
+    const hasProfileChoice = profiles.length > 1 && hasProfile;
+    const isLoading = isProfilesLoading || (hasProfile && !overview.data);
+    const isEmpty = overview.data?.total === 0 && !overview.isFetching;
+    const emptyDescription = isAdmin ? EMPTY_ADMIN_DESCRIPTION : EMPTY_SALES_DESCRIPTION;
+    const profileValue = String(profileId);
+
+    const setProfileId = (id: number) => {
+        void setChosenProfile(id);
+    };
+
+    const onProfileChange = (value: string) => {
+        setProfileId(Number(value));
+    };
 
     return {
         profiles,
-        isProfilesLoading,
         profileId,
-        setProfileId: (id: number) => void setChosenProfile(id),
+        profileValue,
+        hasProfile,
+        hasProfileChoice,
+        isAdmin,
+        isLoading,
+        isEmpty,
+        emptyDescription,
         range,
         setRangeValue,
         threshold,
@@ -55,6 +77,7 @@ export const useInsightsPage = () => {
         timeline,
         sources,
         movers,
+        onProfileChange,
     };
 };
 

@@ -1,15 +1,15 @@
 import { QueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { CACHE_TIME, HTTP_STATUS, STALE_TIME } from "@/constants";
+import { MAX_QUERY_RETRIES } from "@/constants/timing.constants";
 
-function handleRetry(failCount: number, error: unknown) {
-    // Auth failures are handled by the API client (refresh, then sign out); retrying
-    // client errors just repeats the same rejection.
-    const status = (error as { response?: { status?: number } })?.response?.status;
+const handleRetry = (failCount: number, error: Error) => {
+    const status = isAxiosError(error) ? error.response?.status : undefined;
     if (status !== undefined && status >= HTTP_STATUS.BAD_REQUEST && status < HTTP_STATUS.INTERNAL_SERVER_ERROR) {
         return false;
     }
-    return failCount < 2;
-}
+    return failCount < MAX_QUERY_RETRIES;
+};
 
 export const queryClient = new QueryClient({
     defaultOptions: {

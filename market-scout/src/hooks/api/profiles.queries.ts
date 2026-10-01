@@ -11,15 +11,15 @@ import type { TProfileBody } from "@/api/services/profiles/profiles.request.type
 import { queryClient } from "@/lib/queryClient";
 import { useStore } from "@/store";
 import { invalidateMultiple } from "@/utils/common.utils";
+import { LIST_FETCH_LIMIT } from "@/constants/limits.constants";
 
-/** Every profile including switched-off ones (the admin list), unlike the pickers elsewhere. */
 export const useGetAllProfiles = () => {
     const isAuthenticated = useStore((state) => state.isAuthenticated);
 
     return useQuery({
         queryKey: [PROFILE_QUERY_KEYS.PROFILES, "all"],
         enabled: isAuthenticated,
-        queryFn: () => GetProfiles({ limit: 100 }),
+        queryFn: () => GetProfiles({ limit: LIST_FETCH_LIMIT }),
     });
 };
 

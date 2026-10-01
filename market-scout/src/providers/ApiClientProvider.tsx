@@ -8,7 +8,6 @@ const ApiClientProvider = ({ children }: PropsWithChildren) => {
     return (
         <QueryClientProvider client={queryClient}>
             {children}
-            {/* Dev only. Bottom-right: the left edge is the sidebar's user menu. */}
             <ReactQueryDevtools buttonPosition="bottom-right" />
         </QueryClientProvider>
     );

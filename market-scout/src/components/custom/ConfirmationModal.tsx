@@ -46,8 +46,6 @@ const ConfirmationModal = ({
                 {children}
                 <AlertDialogFooter>
                     <AlertDialogCancel disabled={isLoading}>{cancelText}</AlertDialogCancel>
-                    {/* A plain Button, not AlertDialogAction: that one closes the dialog on click,
-                        which would hide it before the request finishes. */}
                     <Button
                         variant={destructive ? "destructive" : "default"}
                         disabled={isLoading}

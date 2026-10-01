@@ -1,121 +1,54 @@
-import type { ColumnDef } from "@tanstack/react-table";
 import { Plus, Radar } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
-import type { TRun } from "@/api/services/runs/runs.response.types";
 import DataTable from "@/components/custom/DataTable";
 import EmptyState from "@/components/custom/EmptyState";
 import PageHeader from "@/components/custom/PageHeader";
 import Pagination from "@/components/custom/Pagination";
-import StatusBadge from "@/components/custom/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import { RUN_STATUS_OPTIONS, getRunStatus } from "@/constants/run-status.constants";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ALL_OPTION_VALUE } from "@/constants";
+import { RUN_STATUS_OPTIONS } from "@/constants/run-status.constants";
 import { APP_ROUTES } from "@/routes/appRoutes";
-import { formatDateTime, formatUsd, getSourceLabel, pluralize } from "@/utils/format.utils";
+import { runColumns } from "./Runs.columns";
+import { RUNS_EMPTY_DESCRIPTION, RUNS_PAGE_DESCRIPTION, RUNS_PAGE_TITLE } from "./Runs.constants";
 import { useRunsPage } from "./Runs.Container";
 
-const ALL = "all";
-
-const sumStat = (run: TRun, field: string) =>
-    Object.entries(run.stats)
-        .filter(([source]) => source !== "website_enrichment")
-        .reduce((total, [, stats]) => total + (stats[field] ?? 0), 0);
-
-const columns: ColumnDef<TRun, unknown>[] = [
-    {
-        id: "run",
-        header: "Run",
-        enableSorting: false,
-        cell: ({ row }) => (
-            <div className="min-w-0">
-                <p className="font-medium">Run #{row.original.id}</p>
-                <p className="truncate text-xs text-muted-foreground">{row.original.profile_name}</p>
-            </div>
-        ),
-    },
-    {
-        id: "status",
-        header: "Status",
-        enableSorting: false,
-        cell: ({ row }) => {
-            const status = getRunStatus(row.original.status);
-            return <StatusBadge label={status?.label ?? row.original.status} className={status?.className} />;
-        },
-    },
-    {
-        id: "progress",
-        header: "Progress",
-        enableSorting: false,
-        size: 220,
-        cell: ({ row }) => {
-            const { progress_percent, tasks_done, tasks_failed, tasks_skipped, tasks_total } = row.original;
-            return (
-                <div className="w-48 space-y-1">
-                    <Progress value={progress_percent} />
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                        {tasks_done + tasks_failed + tasks_skipped} of {pluralize(tasks_total, "search", "searches")}
-                        {tasks_failed > 0 && ` · ${tasks_failed} failed`}
-                    </p>
-                </div>
-            );
-        },
-    },
-    {
-        id: "sources",
-        header: "Sources",
-        enableSorting: false,
-        cell: ({ row }) => (
-            <span className="text-sm">{row.original.source_keys.map(getSourceLabel).join(", ")}</span>
-        ),
-    },
-    {
-        id: "new",
-        header: "New leads",
-        enableSorting: false,
-        cell: ({ row }) => <span className="tabular-nums">{sumStat(row.original, "new")}</span>,
-    },
-    {
-        id: "cost",
-        header: "Cost",
-        enableSorting: false,
-        cell: ({ row }) =>
-            row.original.paid_requests_used > 0 ? (
-                <span className="tabular-nums" title={`${row.original.paid_requests_used} billable requests (estimate)`}>
-                    {formatUsd(row.original.estimated_cost_usd)}
-                </span>
-            ) : (
-                <span className="text-muted-foreground">Free</span>
-            ),
-    },
-    {
-        id: "created",
-        header: "Started",
-        enableSorting: false,
-        cell: ({ row }) => (
-            <span className="whitespace-nowrap text-sm text-muted-foreground">
-                {formatDateTime(row.original.started_at ?? row.original.created_at)}
-            </span>
-        ),
-    },
-];
-
 const Runs = () => {
-    const navigate = useNavigate();
-    const { state, runs, total, isLoading, setStatus, setPage, setPageSize } = useRunsPage();
+    const {
+        runs,
+        total,
+        hasRuns,
+        hasStatusFilter,
+        statusValue,
+        page,
+        pageSize,
+        emptyTitle,
+        isPending,
+        getRunRowId,
+        openRun,
+        onStatusChange,
+        onPageChange,
+        onPageSizeChange,
+    } = useRunsPage();
+
+    const renderStatusOption = (option: (typeof RUN_STATUS_OPTIONS)[number]) => (
+        <SelectItem key={option.value} value={option.value}>
+            {option.label}
+        </SelectItem>
+    );
+
+    const startRunAction = hasStatusFilter ? undefined : (
+        <Button asChild>
+            <Link to={APP_ROUTES.RUNS_NEW}>Start a run</Link>
+        </Button>
+    );
 
     return (
         <div className="space-y-4">
             <PageHeader
-                title="Runs"
-                description="Each run searches the chosen cities and adds new businesses to Leads."
+                title={RUNS_PAGE_TITLE}
+                description={RUNS_PAGE_DESCRIPTION}
                 actions={
                     <Button asChild>
                         <Link to={APP_ROUTES.RUNS_NEW}>
@@ -127,56 +60,28 @@ const Runs = () => {
             />
 
             <div className="flex items-center gap-2">
-                <Select
-                    value={state.status ?? ALL}
-                    onValueChange={(value) =>
-                        setStatus(value === ALL ? null : (value as NonNullable<typeof state.status>))
-                    }
-                >
+                <Select value={statusValue} onValueChange={onStatusChange}>
                     <SelectTrigger className="w-44" aria-label="Filter by status">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value={ALL}>All statuses</SelectItem>
-                        {RUN_STATUS_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                            </SelectItem>
-                        ))}
+                        <SelectItem value={ALL_OPTION_VALUE}>All statuses</SelectItem>
+                        {RUN_STATUS_OPTIONS.map(renderStatusOption)}
                     </SelectContent>
                 </Select>
             </div>
 
             <DataTable
-                columns={columns}
+                columns={runColumns}
                 data={runs}
-                getRowId={(run) => String(run.id)}
-                isLoading={isLoading}
-                onRowClick={(run) => navigate(APP_ROUTES.RUNS_DETAILS.replace(":id", String(run.id)))}
-                emptyState={
-                    <EmptyState
-                        icon={Radar}
-                        title={state.status ? "No runs with this status" : "No runs yet"}
-                        description="Start a run to search for businesses in the cities you sell in."
-                        action={
-                            state.status ? undefined : (
-                                <Button asChild>
-                                    <Link to={APP_ROUTES.RUNS_NEW}>Start a run</Link>
-                                </Button>
-                            )
-                        }
-                    />
-                }
+                getRowId={getRunRowId}
+                isLoading={isPending}
+                onRowClick={openRun}
+                emptyState={<EmptyState icon={Radar} title={emptyTitle} description={RUNS_EMPTY_DESCRIPTION} action={startRunAction} />}
             />
 
-            {total > 0 && (
-                <Pagination
-                    page={state.page}
-                    pageSize={state.size}
-                    total={total}
-                    onPageChange={setPage}
-                    onPageSizeChange={setPageSize}
-                />
+            {hasRuns && (
+                <Pagination page={page} pageSize={pageSize} total={total} onPageChange={onPageChange} onPageSizeChange={onPageSizeChange} />
             )}
         </div>
     );

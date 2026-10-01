@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { showToast } from "@/lib/toast";
+import { COPY_FEEDBACK_MS } from "@/constants/timing.constants";
 
 type TCopyButtonProps = {
     value: string;
@@ -16,7 +17,7 @@ const CopyButton = ({ value, label }: TCopyButtonProps) => {
         try {
             await navigator.clipboard.writeText(value);
             setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
+            setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
         } catch {
             showToast.error("Couldn't copy to the clipboard");
         }

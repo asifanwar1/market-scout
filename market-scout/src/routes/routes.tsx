@@ -8,24 +8,23 @@ import MainLayout from "@/layouts/MainLayout";
 import { APP_ROUTES } from "./appRoutes";
 import RequireRole from "./RequireRole";
 
-// Pages load on demand so the sign-in screen doesn't ship the whole app.
-const Login = lazy(() => import("@/pages/Authentication/Login/Login"));
-const Leads = lazy(() => import("@/pages/Leads/Leads"));
-const Insights = lazy(() => import("@/pages/Insights/Insights"));
-const DoNotContact = lazy(() => import("@/pages/DoNotContact/DoNotContact"));
-const Runs = lazy(() => import("@/pages/Runs/Runs"));
-const NewRun = lazy(() => import("@/pages/Runs/NewRun/NewRun"));
-const RunDetails = lazy(() => import("@/pages/Runs/RunDetails/RunDetails"));
-const Imports = lazy(() => import("@/pages/Imports/Imports"));
-const NewImport = lazy(() => import("@/pages/Imports/NewImport/NewImport"));
-const ImportDetails = lazy(() => import("@/pages/Imports/ImportDetails/ImportDetails"));
-const Profiles = lazy(() => import("@/pages/Profiles/Profiles"));
-const ProfileEditor = lazy(() => import("@/pages/Profiles/ProfileEditor/ProfileEditor"));
-const Locations = lazy(() => import("@/pages/Locations/Locations"));
-const Sources = lazy(() => import("@/pages/Sources/Sources"));
-const Sheets = lazy(() => import("@/pages/Sheets/Sheets"));
-const Users = lazy(() => import("@/pages/Users/Users"));
-const NotFound = lazy(() => import("@/pages/NotFound/NotFound"));
+const Login = lazy(() => import("@/pages/Authentication/Login"));
+const Leads = lazy(() => import("@/pages/Leads"));
+const Insights = lazy(() => import("@/pages/Insights"));
+const DoNotContact = lazy(() => import("@/pages/DoNotContact"));
+const Runs = lazy(() => import("@/pages/Runs"));
+const NewRun = lazy(() => import("@/pages/Runs/NewRun"));
+const RunDetails = lazy(() => import("@/pages/Runs/RunDetails"));
+const Imports = lazy(() => import("@/pages/Imports"));
+const NewImport = lazy(() => import("@/pages/Imports/NewImport"));
+const ImportDetails = lazy(() => import("@/pages/Imports/ImportDetails"));
+const Profiles = lazy(() => import("@/pages/Profiles"));
+const ProfileEditor = lazy(() => import("@/pages/Profiles/ProfileEditor"));
+const Locations = lazy(() => import("@/pages/Locations"));
+const Sources = lazy(() => import("@/pages/Sources"));
+const Sheets = lazy(() => import("@/pages/Sheets"));
+const Users = lazy(() => import("@/pages/Users"));
+const NotFound = lazy(() => import("@/pages/NotFound"));
 
 export const routes: RouteObject[] = [
     {

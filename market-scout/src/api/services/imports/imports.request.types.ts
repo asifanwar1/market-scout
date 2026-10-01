@@ -1,4 +1,3 @@
-/** Which column of the file is which field, by the column's header. */
 export type TColumnMapping = {
     name: string;
     phones: string[];

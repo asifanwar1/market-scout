@@ -36,8 +36,6 @@ export const SCORING_FIELDS: ReadonlyArray<{
 ];
 
 export type TSegmentValues = {
-    // A stable handle the search terms point at; the slug can't be used because a new
-    // segment's slug follows its name as it is typed.
     key: string;
     id?: number;
     slug: string;
@@ -193,7 +191,6 @@ export const toFormValues = (profile: TProfileDetail): TProfileFormValues => {
     };
 };
 
-/** The form has already passed `profileSchema`, so the parsers below cannot fail. */
 export const toRequestBody = (values: TProfileFormValues): TProfileBody => {
     const slugByKey = new Map(values.segments.map((segment) => [segment.key, segmentSlug(segment)]));
 

@@ -1,24 +1,47 @@
-import { parseAsInteger, useQueryStates } from "nuqs";
+import { useQueryStates } from "nuqs";
+import { useNavigate } from "react-router-dom";
 
-import Config from "@/Config";
+import type { TImport } from "@/api/services/imports/imports.response.types";
+import { FIRST_PAGE } from "@/constants";
 import { useGetImports } from "@/hooks/api/imports.queries";
-
-const urlState = {
-    page: parseAsInteger.withDefault(1),
-    size: parseAsInteger.withDefault(Config.LIMIT),
-};
+import { APP_ROUTES } from "@/routes/appRoutes";
+import { paginationUrlState } from "@/utils/listUrlState";
 
 export const useImportsPage = () => {
-    const [state, setState] = useQueryStates(urlState, { history: "replace" });
+    const navigate = useNavigate();
+    const [state, setState] = useQueryStates(paginationUrlState, { history: "replace" });
 
     const { data, isPending } = useGetImports({ page: state.page, limit: state.size });
+    const imports = data?.data ?? [];
+    const total = data?.count ?? 0;
+    const hasImports = total > 0;
+    const page = state.page;
+    const pageSize = state.size;
+
+    const getImportRowId = (item: TImport) => String(item.id);
+
+    const openImport = (item: TImport) => {
+        navigate(APP_ROUTES.IMPORTS_DETAILS.replace(":id", String(item.id)));
+    };
+
+    const onPageChange = (nextPage: number) => {
+        void setState({ page: nextPage });
+    };
+
+    const onPageSizeChange = (size: number) => {
+        void setState({ size, page: FIRST_PAGE });
+    };
 
     return {
-        state,
-        imports: data?.data ?? [],
-        total: data?.count ?? 0,
-        isLoading: isPending,
-        setPage: (page: number) => void setState({ page }),
-        setPageSize: (size: number) => void setState({ size, page: 1 }),
+        imports,
+        total,
+        hasImports,
+        page,
+        pageSize,
+        isPending,
+        getImportRowId,
+        openImport,
+        onPageChange,
+        onPageSizeChange,
     };
 };

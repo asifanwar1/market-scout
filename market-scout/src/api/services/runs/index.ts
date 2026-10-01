@@ -1,3 +1,4 @@
+import { ENDPOINTS } from "@/constants/endpoints.constants";
 import { request } from "@/api/client/request";
 import type { TApiArgs, TQueryParams, WithSignal } from "@/api/types/common";
 import { HTTP_METHODS } from "@/constants";
@@ -17,7 +18,7 @@ import { RUN_QUERY_KEYS } from "./queryKeys";
 export const GetRuns = async (params?: TGetRunsParams) => {
     return request<TGetRunsResponse>({
         method: HTTP_METHODS.GET,
-        url: "/runs/",
+        url: ENDPOINTS.RUNS.ROOT,
         params: params as TQueryParams,
     });
 };
@@ -25,7 +26,7 @@ export const GetRuns = async (params?: TGetRunsParams) => {
 export const GetRun = async ({ id }: TApiArgs) => {
     return request<TRun>({
         method: HTTP_METHODS.GET,
-        url: `/runs/${id}`,
+        url: ENDPOINTS.RUNS.detail(id),
     });
 };
 
@@ -35,7 +36,7 @@ export const GetRunTasks = async ({
 }: TApiArgs<undefined, TGetRunTasksParams>) => {
     return request<TGetRunTasksResponse>({
         method: HTTP_METHODS.GET,
-        url: `/runs/${id}/tasks`,
+        url: ENDPOINTS.RUNS.tasks(id),
         params: params as TQueryParams,
     });
 };
@@ -44,10 +45,9 @@ export const EstimateRun = async (body: WithSignal<TCreateRunBody>) => {
     const { signal, ...payload } = body;
     return request<TRunEstimate, TCreateRunBody>({
         method: HTTP_METHODS.POST,
-        url: "/runs/estimate",
+        url: ENDPOINTS.RUNS.ESTIMATE,
         body: payload,
         signal,
-        // The preview refreshes as options change; its errors are shown inline instead.
         silent: true,
     });
 };
@@ -55,7 +55,7 @@ export const EstimateRun = async (body: WithSignal<TCreateRunBody>) => {
 export const CreateRun = async (body: TCreateRunBody) => {
     return request<TRun, TCreateRunBody>({
         method: HTTP_METHODS.POST,
-        url: "/runs/",
+        url: ENDPOINTS.RUNS.ROOT,
         body,
     });
 };
@@ -63,14 +63,14 @@ export const CreateRun = async (body: TCreateRunBody) => {
 export const CancelRun = async ({ id }: TApiArgs) => {
     return request<TRun>({
         method: HTTP_METHODS.POST,
-        url: `/runs/${id}/cancel`,
+        url: ENDPOINTS.RUNS.cancel(id),
     });
 };
 
 export const ResumeRun = async ({ id }: TApiArgs) => {
     return request<TRun>({
         method: HTTP_METHODS.POST,
-        url: `/runs/${id}/resume`,
+        url: ENDPOINTS.RUNS.resume(id),
     });
 };
 

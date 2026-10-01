@@ -9,13 +9,13 @@ import {
     GetTimeline,
     INSIGHT_QUERY_KEYS,
 } from "@/api";
+import type { TQueryKeyPart } from "@/api/types/common";
 import type { TInsightBucket } from "@/api/services/insights/insights.response.types";
 import { useStore } from "@/store";
+import { STALE_TIME } from "@/constants/api.constants";
 
-// The numbers only move when a run finishes or a lead changes, so a short cache is plenty.
-const STALE_TIME = 30 * 1000;
 
-const useInsightQuery = <T>(key: string, params: unknown[], queryFn: () => Promise<T>, enabled = true) => {
+const useInsightQuery = <T>(key: string, params: TQueryKeyPart[], queryFn: () => Promise<T>, enabled = true) => {
     const isAuthenticated = useStore((state) => state.isAuthenticated);
 
     return useQuery({

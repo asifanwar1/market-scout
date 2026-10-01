@@ -11,8 +11,6 @@ export type TGetProfilesParams = {
     is_active?: boolean;
 };
 
-// Items with an id are updated, items without one are created, and existing items left out of
-// the list are deleted (the backend treats the nested lists as the complete desired state).
 export type TSegmentInput = {
     id?: number;
     name: string;

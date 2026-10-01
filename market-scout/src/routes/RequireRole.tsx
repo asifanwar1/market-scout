@@ -8,8 +8,6 @@ type TRequireRoleProps = {
     roles: UserRole[];
 };
 
-// A guard for what the sidebar already hides: typing the URL by hand mustn't get around it.
-// (The server enforces the same rule; this just spares the user a wall of 403 toasts.)
 const RequireRole = ({ roles }: TRequireRoleProps) => {
     const role = useStore((state) => state.user?.role);
 

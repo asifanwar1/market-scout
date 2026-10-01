@@ -4,23 +4,16 @@ import { Link } from "react-router-dom";
 import ConfirmationModal from "@/components/custom/ConfirmationModal";
 import Loading from "@/components/custom/Loading";
 import PageHeader from "@/components/custom/PageHeader";
+import Stat from "@/components/custom/Stat";
 import StatusBadge from "@/components/custom/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { getRunStatus } from "@/constants/run-status.constants";
 import { APP_ROUTES } from "@/routes/appRoutes";
-import { formatCount, formatDateTime, formatUsd, getSourceLabel } from "@/utils/format.utils";
+import RunStatsTable from "./Components/RunStatsTable";
+import RunTasksTable from "./Components/RunTasksTable";
+import { CANCEL_RUN_DESCRIPTION } from "./RunDetails.constants";
 import { useRunDetails } from "./RunDetails.Container";
-import RunStatsTable from "./RunStatsTable";
-import RunTasksTable from "./RunTasksTable";
-
-const Stat = ({ label, value }: { label: string; value: string }) => (
-    <div>
-        <dt className="text-xs text-muted-foreground">{label}</dt>
-        <dd className="text-lg font-semibold tabular-nums">{value}</dd>
-    </div>
-);
 
 const RunDetails = () => {
     const {
@@ -34,10 +27,25 @@ const RunDetails = () => {
         taskPage,
         taskPageSize,
         taskStatus,
+        statusLabel,
+        statusClassName,
+        pageTitle,
+        pageDescription,
+        searchesFinishedText,
+        websitesReadText,
+        startedText,
+        finishedText,
+        hasBillableRequests,
+        billableText,
+        estimatedCostText,
+        canCancel,
+        failedText,
+        skippedText,
         setTaskStatus,
         setTaskPage,
         showCancel,
-        setShowCancel,
+        openCancel,
+        closeCancel,
         handleCancel,
         isCancelling,
         handleResume,
@@ -57,9 +65,6 @@ const RunDetails = () => {
         );
     }
 
-    const status = getRunStatus(run.status);
-    const finishedSearches = run.tasks_done + run.tasks_failed + run.tasks_skipped;
-
     return (
         <div className="space-y-6">
             <Button asChild variant="ghost" size="sm" className="-ml-2">
@@ -70,13 +75,13 @@ const RunDetails = () => {
             </Button>
 
             <PageHeader
-                title={`Run #${run.id}`}
-                description={`${run.profile_name} · ${run.source_keys.map(getSourceLabel).join(", ")}`}
+                title={pageTitle}
+                description={pageDescription}
                 actions={
                     <>
-                        <StatusBadge label={status?.label ?? run.status} className={status?.className} />
-                        {isActive && run.status !== "cancelling" && (
-                            <Button variant="outline" onClick={() => setShowCancel(true)}>
+                        <StatusBadge label={statusLabel} className={statusClassName} />
+                        {canCancel && (
+                            <Button variant="outline" onClick={openCancel}>
                                 <Ban />
                                 Cancel run
                             </Button>
@@ -98,10 +103,7 @@ const RunDetails = () => {
             />
 
             {run.error && (
-                <div
-                    role="alert"
-                    className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm"
-                >
+                <div role="alert" className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
                     <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
                     <p>{run.error}</p>
                 </div>
@@ -121,32 +123,27 @@ const RunDetails = () => {
                     <Progress value={run.progress_percent} aria-label="Run progress" />
 
                     <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                        <Stat label="Searches finished" value={`${finishedSearches} / ${run.tasks_total}`} />
-                        <Stat label="Failed" value={formatCount(run.tasks_failed)} />
-                        <Stat label="Skipped (done recently)" value={formatCount(run.tasks_skipped)} />
-                        {run.enrich_total > 0 ? (
-                            <Stat label="Websites read" value={`${run.enrich_done} / ${run.enrich_total}`} />
-                        ) : (
-                            <Stat label="Websites read" value="—" />
-                        )}
+                        <Stat label="Searches finished" value={searchesFinishedText} />
+                        <Stat label="Failed" value={failedText} />
+                        <Stat label="Skipped (done recently)" value={skippedText} />
+                        <Stat label="Websites read" value={websitesReadText} />
                     </dl>
 
                     <dl className="grid grid-cols-2 gap-4 border-t pt-4 text-sm sm:grid-cols-4">
                         <div>
                             <dt className="text-xs text-muted-foreground">Started</dt>
-                            <dd>{formatDateTime(run.started_at ?? run.created_at)}</dd>
+                            <dd>{startedText}</dd>
                         </div>
                         <div>
                             <dt className="text-xs text-muted-foreground">Finished</dt>
-                            <dd>{run.finished_at ? formatDateTime(run.finished_at) : "—"}</dd>
+                            <dd>{finishedText}</dd>
                         </div>
-                        {run.paid_requests_used > 0 && (
+                        {hasBillableRequests && (
                             <div>
                                 <dt className="text-xs text-muted-foreground">Billable requests</dt>
                                 <dd>
-                                    {formatCount(run.paid_requests_used)}
-                                    {run.max_paid_requests !== null && ` of ${formatCount(run.max_paid_requests)} allowed`}
-                                    <span className="text-muted-foreground"> · about {formatUsd(run.estimated_cost_usd)}</span>
+                                    {billableText}
+                                    <span className="text-muted-foreground"> · {estimatedCostText}</span>
                                 </dd>
                             </div>
                         )}
@@ -174,12 +171,12 @@ const RunDetails = () => {
                 open={showCancel}
                 destructive
                 title="Cancel this run?"
-                description="It stops after the search it is on. What it has already found is kept."
+                description={CANCEL_RUN_DESCRIPTION}
                 confirmText="Cancel run"
                 cancelText="Keep running"
                 isLoading={isCancelling}
                 onConfirm={handleCancel}
-                onClose={() => setShowCancel(false)}
+                onClose={closeCancel}
             />
         </div>
     );

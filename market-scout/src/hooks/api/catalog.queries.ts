@@ -10,9 +10,10 @@ import {
     SOURCE_QUERY_KEYS,
 } from "@/api";
 import { useStore } from "@/store";
+import { STALE_TIME } from "@/constants/api.constants";
+import { LIST_FETCH_LIMIT } from "@/constants/limits.constants";
+import { REFERENCE_STALE_TIME } from "@/constants/timing.constants";
 
-// Reference data (profiles, locations, sources) changes rarely, so it is cached for longer.
-const REFERENCE_STALE_TIME = 5 * 60 * 1000;
 
 export const useGetProfiles = () => {
     const isAuthenticated = useStore((state) => state.isAuthenticated);
@@ -21,7 +22,7 @@ export const useGetProfiles = () => {
         queryKey: [PROFILE_QUERY_KEYS.PROFILES],
         enabled: isAuthenticated,
         staleTime: REFERENCE_STALE_TIME,
-        queryFn: () => GetProfiles({ limit: 100, is_active: true }),
+        queryFn: () => GetProfiles({ limit: LIST_FETCH_LIMIT, is_active: true }),
     });
 };
 
@@ -51,7 +52,7 @@ export const useGetSources = () => {
     return useQuery({
         queryKey: [SOURCE_QUERY_KEYS.SOURCES],
         enabled: isAuthenticated,
-        staleTime: 30 * 1000,
+        staleTime: STALE_TIME,
         queryFn: GetSources,
     });
 };

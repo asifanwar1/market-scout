@@ -1,28 +1,20 @@
+import type { TSource } from "@/api/services/sources/sources.response.types";
 import Loading from "@/components/custom/Loading";
 import PageHeader from "@/components/custom/PageHeader";
-import { useGetSources } from "@/hooks/api/catalog.queries";
-import SourceCard from "./SourceCard";
+import SourceCard from "./Components/SourceCard";
+import { SOURCES_PAGE_DESCRIPTION, SOURCES_PAGE_TITLE } from "./Sources.constants";
+import { useSourcesPage } from "./Sources.Container";
 
 const Sources = () => {
-    const { data, isPending } = useGetSources();
-    const sources = data?.data ?? [];
+    const { isPending, sources } = useSourcesPage();
+
+    const renderSource = (source: TSource) => <SourceCard key={source.key} source={source} />;
 
     return (
         <div className="max-w-4xl space-y-6">
-            <PageHeader
-                title="Sources"
-                description="Where Market Scout looks for businesses. Free sources work out of the box; add an API key to use a paid one, and switch back to free ones any time."
-            />
+            <PageHeader title={SOURCES_PAGE_TITLE} description={SOURCES_PAGE_DESCRIPTION} />
 
-            {isPending ? (
-                <Loading />
-            ) : (
-                <div className="space-y-4">
-                    {sources.map((source) => (
-                        <SourceCard key={source.key} source={source} />
-                    ))}
-                </div>
-            )}
+            {isPending ? <Loading /> : <div className="space-y-4">{sources.map(renderSource)}</div>}
         </div>
     );
 };

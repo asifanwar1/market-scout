@@ -6,7 +6,6 @@ type TStatusBadgeProps = {
     className?: string;
 };
 
-/** A pill coloured by its own classes (see the *.constants files for the palettes). */
 const StatusBadge = ({ label, className }: TStatusBadgeProps) => {
     return (
         <Badge

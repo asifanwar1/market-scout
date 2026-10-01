@@ -1,13 +1,13 @@
 import { cn } from "@/lib/utils";
+import { SCORE_HIGH_MIN, SCORE_MEDIUM_MIN } from "@/constants/limits.constants";
 
 type TScoreBadgeProps = {
     score: number | null | undefined;
 };
 
-// A lead's score is 0-100: how much is known that a salesperson can act on.
 const toneFor = (score: number) => {
-    if (score >= 70) return "bg-success text-success-foreground";
-    if (score >= 40) return "bg-warning text-warning-foreground";
+    if (score >= SCORE_HIGH_MIN) return "bg-success text-success-foreground";
+    if (score >= SCORE_MEDIUM_MIN) return "bg-warning text-warning-foreground";
     return "bg-muted text-muted-foreground";
 };
 

@@ -1,7 +1,10 @@
+import { isAxiosError } from "axios";
+
 import { GENERIC_ERROR_MESSAGE } from "@/constants/Validation-messages.constants";
 import { getErrorMessage } from "@/lib/errorHandlerUtils";
+import { DATE_STAMP_LENGTH } from "@/constants/limits.constants";
+import { OBJECT_URL_REVOKE_DELAY_MS } from "@/constants/timing.constants";
 
-/** Hands a downloaded blob to the browser as a file. */
 export const saveBlob = (blob: Blob, filename: string): void => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -10,16 +13,14 @@ export const saveBlob = (blob: Blob, filename: string): void => {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    // Revoked on a later tick: some browsers start reading the blob after click() returns.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_REVOKE_DELAY_MS);
 };
 
-/** A failed blob download carries its JSON error as a Blob; read the message out of it. */
-export const getBlobErrorMessage = async (error: unknown): Promise<string> => {
-    const data = (error as { response?: { data?: unknown } } | null)?.response?.data;
+export const getBlobErrorMessage = async (error: Error): Promise<string> => {
+    const data = isAxiosError(error) ? error.response?.data : undefined;
     if (data instanceof Blob) {
         try {
-            const body = JSON.parse(await data.text()) as { detail?: unknown };
+            const body = JSON.parse(await data.text()) as { detail?: string };
             if (typeof body.detail === "string" && body.detail) return body.detail;
         } catch {
             return GENERIC_ERROR_MESSAGE;
@@ -29,4 +30,4 @@ export const getBlobErrorMessage = async (error: unknown): Promise<string> => {
     return getErrorMessage(error);
 };
 
-export const todayStamp = (): string => new Date().toISOString().slice(0, 10);
+export const todayStamp = (): string => new Date().toISOString().slice(0, DATE_STAMP_LENGTH);

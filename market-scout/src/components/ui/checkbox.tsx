@@ -3,10 +3,10 @@ import { cn } from "@/lib/utils"
 import { Checkbox as CheckboxPrimitive } from "radix-ui"
 import { CheckIcon, MinusIcon } from "lucide-react"
 
-function Checkbox({
+const Checkbox = ({
   className,
   ...props
-}: React.ComponentProps<typeof CheckboxPrimitive.Root>) {
+}: React.ComponentProps<typeof CheckboxPrimitive.Root>) => {
   return (
     <CheckboxPrimitive.Root
       data-slot="checkbox"
@@ -20,12 +20,11 @@ function Checkbox({
         data-slot="checkbox-indicator"
         className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
       >
-        {/* Local change to the generated file: a dash, not a tick, when only some items are selected. */}
         <CheckIcon className="in-data-[state=indeterminate]:hidden" />
         <MinusIcon className="hidden in-data-[state=indeterminate]:block" />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   )
-}
+};
 
 export { Checkbox }
