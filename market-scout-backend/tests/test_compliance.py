@@ -24,8 +24,6 @@ def block(client, headers, business, **body):
     return client.post(f"{LEADS}/{business.id}/do-not-contact", headers=headers, json=body)
 
 
-# ---- blocking a business ---------------------------------------------------------------------
-
 def test_anyone_can_record_a_stop_request_for_a_business(client, noor, sales_user, auth_headers, db_session):
     response = block(client, auth_headers(sales_user), noor, reason="Owner asked us to stop calling")
 
@@ -33,9 +31,8 @@ def test_anyone_can_record_a_stop_request_for_a_business(client, noor, sales_use
     entry = response.json()
     assert (entry["kind"], entry["value"], entry["business_id"]) == ("business", "Al Noor Solar", noor.id)
     assert entry["reason"] == "Owner asked us to stop calling" and entry["added_by_id"] == sales_user.id
-    # Its phones and email are blocked along with it, so a re-scrape can't bring it back.
     assert entry["identifiers"] == ["+923004438424", "+924235771769", "info@alnoor.pk"]
-    assert db_session.query(DoNotContact).count() == 4        # the business + 2 phones + 1 email
+    assert db_session.query(DoNotContact).count() == 4
 
 
 def test_blocking_twice_is_harmless_and_unknown_business_is_404(client, noor, sales_user, auth_headers, db_session):
@@ -48,8 +45,6 @@ def test_blocking_twice_is_harmless_and_unknown_business_is_404(client, noor, sa
     assert client.post(f"{LEADS}/9999/do-not-contact", headers=headers, json={}).status_code == 404
 
 
-# ---- blocking a phone / email ----------------------------------------------------------------------
-
 def test_block_a_phone_number_as_written_locally(client, sales_user, auth_headers):
     headers = auth_headers(sales_user)
     response = client.post(DNC, headers=headers, json={"phone": "0300-4438424", "reason": "Wrong number"})
@@ -57,7 +52,7 @@ def test_block_a_phone_number_as_written_locally(client, sales_user, auth_header
     assert response.status_code == 201
     assert (response.json()["kind"], response.json()["value"]) == ("phone", "+923004438424")
     same_again = client.post(DNC, headers=headers, json={"phone": "+92 300 4438424"})
-    assert same_again.json()["id"] == response.json()["id"]                 # normalised, so it's the same entry
+    assert same_again.json()["id"] == response.json()["id"]
 
 
 def test_block_an_email_case_insensitively(client, sales_user, auth_headers):
@@ -71,7 +66,7 @@ def test_block_an_email_case_insensitively(client, sales_user, auth_headers):
     "body, status",
     [
         ({"phone": "not a phone"}, 400),
-        ({"phone": "0300 4438424, 0301 1112223"}, 400),       # one number at a time
+        ({"phone": "0300 4438424, 0301 1112223"}, 400),
         ({"email": "not-an-email"}, 422),
         ({"email": "logo@2x.png"}, 400),
         ({}, 422),
@@ -81,8 +76,6 @@ def test_block_an_email_case_insensitively(client, sales_user, auth_headers):
 def test_block_validation(client, sales_user, auth_headers, body, status):
     assert client.post(DNC, headers=auth_headers(sales_user), json=body).status_code == status
 
-
-# ---- the list ------------------------------------------------------------------------------------------
 
 def test_list_shows_one_line_per_block_not_the_backing_rows(client, noor, make_business, sales_user, auth_headers):
     headers = auth_headers(sales_user)
@@ -97,7 +90,7 @@ def test_list_shows_one_line_per_block_not_the_backing_rows(client, noor, make_b
     assert by_kind["business"]["value"] == "Al Noor Solar" and len(by_kind["business"]["identifiers"]) == 3
     assert by_kind["phone"]["value"] == "+923337654321" and by_kind["phone"]["identifiers"] == []
     assert by_kind["email"]["value"] == "spam@example.pk"
-    assert [entry["id"] for entry in listing["data"]] == sorted((e["id"] for e in listing["data"]), reverse=True)   # newest first
+    assert [entry["id"] for entry in listing["data"]] == sorted((e["id"] for e in listing["data"]), reverse=True)
 
 
 def test_list_search_and_pagination(client, noor, sales_user, auth_headers):
@@ -112,8 +105,6 @@ def test_list_search_and_pagination(client, noor, sales_user, auth_headers):
     page = client.get(f"{DNC}?limit=2&page=2", headers=headers).json()
     assert page["count"] == 3 and len(page["data"]) == 1
 
-
-# ---- lifting a block ------------------------------------------------------------------------------------------
 
 def test_only_an_admin_can_lift_a_block(client, noor, sales_user, admin_user, auth_headers):
     entry = block(client, auth_headers(sales_user), noor).json()
@@ -130,7 +121,7 @@ def test_lifting_a_business_block_restores_it_completely(client, noor, sales_use
 
     client.delete(f"{DNC}/{entry['id']}", headers=auth_headers(admin_user))
 
-    assert db_session.query(DoNotContact).count() == 0                     # the identifier rows went too
+    assert db_session.query(DoNotContact).count() == 0
     assert client.get(f"{LEADS}/{noor.id}", headers=auth_headers(sales_user)).status_code == 200
 
 
@@ -159,8 +150,6 @@ def test_requires_authentication(client):
     assert client.get(DNC).status_code == 401
     assert client.post(DNC, json={"phone": "0300 4438424"}).status_code == 401
 
-
-# ---- a re-scrape can't bring a blocked business back ---------------------------------------------------------------------
 
 def context_for(seeded_profile, db_session, city="lahore"):
     from datetime import datetime
@@ -196,7 +185,7 @@ def test_the_same_record_seen_again_is_refused_and_left_untouched(client, noor, 
 
     assert outcome.blocked is True and outcome.business is None and outcome.created is False
     db_session.refresh(noor)
-    assert db_session.query(ContactPoint).filter_by(business_id=noor.id).count() == contacts_before   # no new contact stored
+    assert db_session.query(ContactPoint).filter_by(business_id=noor.id).count() == contacts_before
     assert noor.website == "https://alnoor.pk"
 
 
@@ -218,7 +207,6 @@ def test_a_new_record_with_a_blocked_phone_or_email_is_never_stored(client, sale
 
 def test_a_business_found_through_a_different_source_is_still_recognised_as_blocked(client, noor, sales_user, auth_headers, db_session, seeded_profile):
     block(client, auth_headers(sales_user), noor)
-    # Google Places lists the same shop with the same phone: matched to the blocked business, so refused.
     outcome = ingest_business(
         db_session,
         raw("ChIJ-1", "Al-Noor Solar", source_key="google_places", phones=["+92 300 4438424"], latitude=40.0, longitude=70.0),
@@ -264,7 +252,7 @@ def test_a_run_counts_refused_records_and_stores_none_of_them(client, noor, admi
     stats = finished.stats["osm"]
     n_tasks = finished.tasks_done
     assert finished.status == "completed"
-    assert stats["blocked"] == n_tasks                    # the blocked record, once per search
-    assert stats["found"] == n_tasks and stats["new"] == 1     # only the fresh shop counts, and is stored once
+    assert stats["blocked"] == n_tasks
+    assert stats["found"] == n_tasks and stats["new"] == 1
     assert sorted(b.name for b in db_session.query(Business)) == ["Al Noor Solar", "Fresh Shop"]
     assert db_session.query(ContactPoint).filter_by(value="+923119998887").count() == 0

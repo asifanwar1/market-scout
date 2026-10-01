@@ -8,31 +8,38 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.core.config import settings
+from app.core.constants import FIRST_PAGE, PRICE_DIGITS, SECONDS_PER_MINUTE
+from app.core.database import WorkerSessionLocal, WriteSessionLocal
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
-from app.core.scouting.classify import SegmentRule
 from app.core.scouting.enrichment.website import EnrichmentError, WebsiteContacts, WebsiteEnricher
-from app.core.scouting.sources import osm
+from app.core.scouting.sources import osm, overture
 from app.core.scouting.sources.base import Source, SourceAuthError, SourceError
 from app.core.scouting.sources.google_places import MAX_PAGES
 from app.core.scouting.sources.registry import ENRICHMENT_KEY, KIND_DISCOVERY, get_source_info
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery
-from app.database import WorkerSessionLocal, WriteSessionLocal
 from app.features.businesses import ingest as businesses_ingest
 from app.features.businesses.ingest import IngestContext, ProfileScoring
 from app.features.businesses.models import Business, SourceRecord
 from app.features.geographies.models import Geography, GeographyLevel
 from app.features.profiles.models import Profile, ProfileSearchTerm
-from app.features.profiles.schemas import ScoringConfig
 from app.features.runs.models import Run, RunStatus, RunTask, TaskStatus
 from app.features.runs.schemas import RunCreate
 from app.features.runs.worker import worker
 from app.features.sheets import service as sheets_service
 from app.features.sources import service as sources_service
 
+PAID_SEARCH_SECONDS = 3
+OSM_SEARCH_OVERHEAD_SECONDS = 3
+TASK_ERROR_MAX_LENGTH = 500
+
+
+DEFAULT_LIMIT = 10
+DEFAULT_TASKS_LIMIT = 50
+
+
 logger = logging.getLogger(__name__)
 
-# A business whose website was read within this window isn't re-fetched by later runs.
 ENRICHMENT_RECHECK_DAYS = 30
 
 SourceBuilder = Callable[[Session, list[str]], dict[str, Source]]
@@ -49,8 +56,6 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-# ---- planning ------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class TaskPlan:
     source_key: str
@@ -63,8 +68,11 @@ class TaskPlan:
 
 
 def _term_supported(source_key: str, term: ProfileSearchTerm) -> bool:
-    # OpenStreetMap is queried by tags, so a term without an OSM filter can't be searched there.
-    return source_key != osm.SOURCE_KEY or bool(term.osm_filter)
+    if source_key == osm.SOURCE_KEY:
+        return bool(term.osm_filter)
+    if source_key == overture.SOURCE_KEY:
+        return overture.supports(term.osm_filter)
+    return True
 
 
 def _resolve_cities(db: Session, geography_ids: list[int]) -> list[Geography]:
@@ -94,7 +102,12 @@ def _validated_source_keys(db: Session, source_keys: list[str]) -> list[str]:
         if info is None or info.kind != KIND_DISCOVERY:
             raise BadRequestException(f"'{key}' is not a source that can be searched")
         if key not in available:
-            reason = "is switched off or has no API key" if info.requires_api_key else "is switched off"
+            if info.requires_api_key:
+                reason = "is switched off or has no API key"
+            elif info.requires_dataset:
+                reason = "is switched off or its data has not been downloaded"
+            else:
+                reason = "is switched off"
             raise BadRequestException(f"{info.name} {reason}")
     return source_keys
 
@@ -128,7 +141,7 @@ def _plan(db: Session, run_in: RunCreate) -> tuple[Profile, list[Geography], lis
     if not plans:
         raise BadRequestException(
             "Nothing to search: no active search terms fit the chosen sources "
-            "(OpenStreetMap only searches terms that have an OSM filter)"
+            "(OpenStreetMap and Overture Maps only search terms that have an OSM filter)"
         )
     return profile, cities, plans
 
@@ -148,8 +161,6 @@ def _recently_searched(db: Session, plans: list[TaskPlan]) -> set[tuple[str, int
     )
     return {tuple(row) for row in rows}
 
-
-# ---- estimate / create ------------------------------------------------------------
 
 def _too_many_searches_message(count: int) -> str:
     return (
@@ -180,11 +191,11 @@ def estimate_run(db: Session, run_in: RunCreate) -> dict:
             max_requests = to_run * MAX_PAGES
             if run_in.max_paid_requests is not None:
                 max_requests = min(max_requests, run_in.max_paid_requests)
-            cost = round(max_requests * settings.PLACES_COST_PER_REQUEST_USD, 2)
+            cost = round(max_requests * settings.PLACES_COST_PER_REQUEST_USD, PRICE_DIGITS)
             paid_requests_max += max_requests
-            seconds += to_run * 3
+            seconds += to_run * PAID_SEARCH_SECONDS
         elif source_key == osm.SOURCE_KEY:
-            seconds += to_run * (settings.OVERPASS_MIN_INTERVAL_SECONDS + 3)
+            seconds += to_run * (settings.OVERPASS_MIN_INTERVAL_SECONDS + OSM_SEARCH_OVERHEAD_SECONDS)
 
         by_source.append(
             {
@@ -230,8 +241,8 @@ def estimate_run(db: Session, run_in: RunCreate) -> dict:
         "tasks_skipped": tasks_skipped,
         "by_source": by_source,
         "paid_requests_max": paid_requests_max,
-        "estimated_cost_usd": round(paid_requests_max * settings.PLACES_COST_PER_REQUEST_USD, 2),
-        "estimated_minutes": math.ceil(seconds / 60) if tasks_to_run_total else 0,
+        "estimated_cost_usd": round(paid_requests_max * settings.PLACES_COST_PER_REQUEST_USD, PRICE_DIGITS),
+        "estimated_minutes": math.ceil(seconds / SECONDS_PER_MINUTE) if tasks_to_run_total else 0,
         "allowed": allowed,
         "warnings": warnings,
     }
@@ -283,9 +294,7 @@ def create_run(db: Session, run_in: RunCreate, created_by_id: int) -> Run:
     return run
 
 
-# ---- reading / controlling --------------------------------------------------------
-
-def get_runs(db: Session, page: int = 1, limit: int = 10, status: RunStatus | None = None) -> dict:
+def get_runs(db: Session, page: int = FIRST_PAGE, limit: int = DEFAULT_LIMIT, status: RunStatus | None = None) -> dict:
     query = db.query(Run)
     if status is not None:
         query = query.filter(Run.status == status.value)
@@ -303,7 +312,7 @@ def get_run_by_id(db: Session, run_id: int) -> Run:
 
 
 def get_run_tasks(
-    db: Session, run_id: int, page: int = 1, limit: int = 50, status: TaskStatus | None = None
+    db: Session, run_id: int, page: int = FIRST_PAGE, limit: int = DEFAULT_TASKS_LIMIT, status: TaskStatus | None = None
 ) -> dict:
     get_run_by_id(db, run_id)
     query = db.query(RunTask).filter(RunTask.run_id == run_id)
@@ -325,7 +334,6 @@ def cancel_run(db: Session, run_id: int) -> Run:
         run.status = RunStatus.CANCELLED.value
         run.finished_at = _now()
     elif run.status == RunStatus.RUNNING.value:
-        # The worker sees this between searches and winds the run down.
         run.status = RunStatus.CANCELLING.value
     elif run.status != RunStatus.CANCELLING.value:
         raise ConflictException("This run has already finished")
@@ -335,7 +343,6 @@ def cancel_run(db: Session, run_id: int) -> Run:
 
 
 def resume_run(db: Session, run_id: int) -> Run:
-    """Continue a run that was interrupted (e.g. the server restarted) from where it stopped."""
     run = get_run_by_id(db, run_id)
     has_pending = (
         db.query(RunTask.id).filter(RunTask.run_id == run.id, RunTask.status == TaskStatus.PENDING.value).first()
@@ -352,28 +359,15 @@ def resume_run(db: Session, run_id: int) -> Run:
     return run
 
 
-# ---- execution ----------------------------------------------------------------------
-
 def _empty_stats(fields: tuple[str, ...]) -> dict[str, int]:
     return {field: 0 for field in fields}
 
 
 def _snapshot(stats: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
-    # A new dict each time: SQLAlchemy doesn't notice in-place changes to a JSON value.
     return {key: dict(values) for key, values in stats.items()}
 
 
-def _profile_scoring(profile: Profile) -> ProfileScoring:
-    weights = {**ScoringConfig().model_dump(), **(profile.scoring_config or {})}
-    return ProfileScoring(
-        profile_id=profile.id,
-        segment_ids={segment.slug: segment.id for segment in profile.segments},
-        segment_rules=[
-            SegmentRule(segment.slug, tuple((segment.match_rules or {}).get("name_patterns", [])))
-            for segment in profile.segments
-        ],
-        weights=weights,
-    )
+_profile_scoring = businesses_ingest.build_profile_scoring
 
 
 def _default_enricher() -> WebsiteEnricher:
@@ -387,11 +381,9 @@ def execute_run(
     source_builder: SourceBuilder | None = None,
     enricher_factory: EnricherFactory | None = None,
 ) -> Run | None:
-    """Do the work of a queued run. Runs on the worker thread with its own session; the
-    parameters exist so tests can supply fake sources."""
     run = db.get(Run, run_id)
     if run is None or run.status != RunStatus.QUEUED.value:
-        return run  # cancelled while it waited in the queue, or already handled
+        return run
 
     run.status = RunStatus.RUNNING.value
     run.started_at = _now()
@@ -404,7 +396,7 @@ def execute_run(
 
     try:
         sources = (source_builder or sources_service.build_sources)(db, list(run.source_keys))
-    except ValueError as exc:  # e.g. a key that was removed after the run was queued
+    except ValueError as exc:
         return _finish(db, run, RunStatus.FAILED, str(exc))
 
     stats: dict[str, dict[str, int]] = {key: _empty_stats(_SEARCH_STAT_FIELDS) for key in run.source_keys}
@@ -489,7 +481,6 @@ def _run_task(
     try:
         result = source.search(query, max_requests=remaining)
     except SourceAuthError as exc:
-        # A bad key fails every remaining search on that source the same way; stop asking.
         unusable_sources[task.source_key] = f"{info.name} rejected the request: {exc}"
         run.error = run.error or unusable_sources[task.source_key]
         return _fail_task(db, run, task, str(exc), stats)
@@ -525,32 +516,12 @@ def _run_task(
 
 
 def _ingest_results(db: Session, businesses: list[RawBusiness], context: IngestContext) -> dict[str, int]:
-    counts = {"found": 0, "new": 0, "merged": 0, "blocked": 0, "with_phone": 0, "with_website": 0, "with_email": 0, "errors": 0}
-    for raw in businesses:
-        try:
-            # A savepoint per record: one malformed listing must not undo the rest.
-            with db.begin_nested():
-                outcome = businesses_ingest.ingest_business(db, raw, context)
-        except Exception:
-            logger.exception("Could not store %s/%s", raw.source_key, raw.external_id)
-            counts["errors"] += 1
-            continue
-
-        if outcome.blocked:
-            counts["blocked"] += 1
-            continue
-
-        counts["found"] += 1
-        counts["new" if outcome.created else "merged"] += 1
-        counts["with_phone"] += outcome.phone_count > 0
-        counts["with_website"] += outcome.has_website
-        counts["with_email"] += outcome.has_email
-    return counts
+    return businesses_ingest.ingest_records(db, ((raw, context) for raw in businesses))
 
 
 def _fail_task(db: Session, run: Run, task: RunTask, message: str, stats: dict[str, dict[str, int]]) -> None:
     task.status = TaskStatus.FAILED.value
-    task.error = message[:500]
+    task.error = message[:TASK_ERROR_MAX_LENGTH]
     task.finished_at = _now()
     run.tasks_failed += 1
     stats[task.source_key]["tasks_failed"] += 1
@@ -567,7 +538,6 @@ def _skip_task(db: Session, run: Run, task: RunTask, reason: str) -> None:
 
 
 def _fetch_contacts(enricher: WebsiteEnricher, url: str) -> tuple[WebsiteContacts | None, str | None]:
-    """Runs on a pool thread: network only, no database access."""
     try:
         return enricher.enrich(url), None
     except EnrichmentError as exc:
@@ -610,7 +580,6 @@ def _enrich_websites(
 
             contacts, error = future.result()
             business = db.get(Business, futures[future])
-            # Stamped even on failure, so a dead site isn't retried on every run.
             business.enriched_at = _now()
             enrich_stats["visited"] += 1
 
@@ -668,11 +637,7 @@ def _finish(db: Session, run: Run, status: RunStatus, error: str | None = None) 
     return run
 
 
-# ---- process lifecycle -------------------------------------------------------------------
-
 def run_in_new_session(run_id: int) -> None:
-    # A worker session: writes lock up front and loaded objects stay loaded after a commit, so no
-    # transaction is ever left open while a search waits on the network (see app/database.py).
     db = WorkerSessionLocal()
     try:
         execute_run(db, run_id)
@@ -684,13 +649,10 @@ def run_in_new_session(run_id: int) -> None:
             _finish(db, run, RunStatus.FAILED, "Unexpected error (see the server log)")
     finally:
         db.close()
-        # Whatever the run found (even a partial run) should reach the live sheet.
         sheets_service.notify_changed()
 
 
 def recover_interrupted_runs(db: Session) -> list[int]:
-    """After a restart: runs that were mid-flight are marked failed (and can be resumed); runs
-    that were still waiting are returned so they can be queued again."""
     interrupted = db.query(Run).filter(Run.status.in_([RunStatus.RUNNING.value, RunStatus.CANCELLING.value])).all()
     for run in interrupted:
         db.query(RunTask).filter(RunTask.run_id == run.id, RunTask.status == TaskStatus.RUNNING.value).update(
@@ -707,7 +669,6 @@ def start_worker() -> None:
     db = WriteSessionLocal()
     try:
         queued = recover_interrupted_runs(db)
-        # Once, at start-up, so that reading the Sources screen never has to write.
         sources_service.ensure_sources(db)
     finally:
         db.close()

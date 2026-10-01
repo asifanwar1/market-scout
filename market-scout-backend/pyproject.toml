@@ -14,7 +14,7 @@ ignore = [
 # FastAPI reads dependencies from defaults: Depends(...) and Query(...) in signatures.
 "app/**/router.py" = ["B008"]
 "app/**/dependencies.py" = ["B008"]
-"app/dependencies.py" = ["B008"]
+"app/core/dependencies.py" = ["B008"]
 "app/main.py" = ["B008"]
 "tests/**" = ["B008", "E501"]
 "tests/conftest.py" = ["E402"]  # the test environment must be set before the app is imported

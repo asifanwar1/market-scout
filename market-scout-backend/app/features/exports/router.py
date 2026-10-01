@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db
+from app.core.dependencies import get_db
 from app.features.auth.dependencies import get_current_user
 from app.features.businesses.dependencies import business_filters
 from app.features.businesses.schemas import BusinessSort, SortDirection
@@ -23,7 +23,6 @@ def export_leads_csv(
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    """The leads matching the same filters as the list, as a CSV. Do-not-contact is excluded."""
     file, count = service.write_leads_csv(db, filters, sort=sort, direction=direction)
     return StreamingResponse(
         service.iter_file(file),

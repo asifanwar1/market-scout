@@ -10,7 +10,8 @@ The web app for Market Scout: the sales team's leads workspace and the admin's t
 - **Administration** (admins only):
   - **Profiles**: define an industry without touching code: its segments, search terms (including the OpenStreetMap filter for each), and how leads are scored. Editing validates as you type, warns before you leave with unsaved changes, and updates in place so existing leads keep their segment.
   - **Locations**: the provinces and cities a run can search, with each city's centre and radius.
-  - **Sources**: switch sources on and off, save the Google Places API key (stored encrypted, never shown again), and test the connection.
+  - **Sources**: switch sources on and off, save the Google Places API key (stored encrypted, never shown again), test the connection, and see whether the Overture Maps data has been downloaded.
+  - **Imports**: upload a CSV or Excel list (certified installers, chamber directories, customs records), confirm which column is which, and watch it being added to Leads. Rows are matched against the businesses you already have; anyone on do-not-contact is refused. Tick "Look up missing phones in Overture Maps" for a list that only names its businesses. Each list becomes a "Found by" source you can filter Leads by and compare on Insights.
   - **Google Sheet**: connect a Google Sheet that mirrors the leads live (paste a Google service-account key, share the sheet with its address, press Sync now). It refreshes by itself after runs and edits; the sheet is a read-only copy, so share it view-only. The screen walks through the Google setup.
   - **Users**: create accounts and change roles, passwords and access.
 - **Do not contact** (everyone can view and add; only admins can lift a block): a business, phone number or email that asked not to be contacted.

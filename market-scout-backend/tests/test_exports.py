@@ -56,7 +56,7 @@ def test_a_lead_row_carries_what_sales_needs(client, leads, seeded_profile, sale
     assert noor[COLUMN["Segment"]] == "Dealer"
     assert noor[COLUMN["Score"]] == "100"
     assert noor[COLUMN["Status"]] == "New"
-    assert noor[COLUMN["Phone numbers"]] == "+923004438424; +924235771769"   # the mobile first, then the landline
+    assert noor[COLUMN["Phone numbers"]] == "+923004438424; +924235771769"
     assert noor[COLUMN["WhatsApp chat"]] == "https://wa.me/923004438424"
     assert noor[COLUMN["Email"]] == "info@alnoor.pk"
     assert noor[COLUMN["Website"]] == "https://alnoor.pk"
@@ -64,7 +64,7 @@ def test_a_lead_row_carries_what_sales_needs(client, leads, seeded_profile, sale
     assert noor[COLUMN["Rating"]] == "4.6" and noor[COLUMN["Reviews"]] == "20"
     assert noor[COLUMN["Found by"]] == "OpenStreetMap"
     assert noor[COLUMN["Map"]].startswith("https://www.google.com/maps?q=")
-    assert len(noor[COLUMN["First found"]]) == 10  # a plain date, YYYY-MM-DD
+    assert len(noor[COLUMN["First found"]]) == 10
 
 
 def test_status_notes_and_assignee_show_what_sales_recorded(client, leads, sales_user, admin_user, auth_headers):
@@ -127,7 +127,7 @@ def test_a_business_named_like_a_formula_cannot_run_in_excel(client, make_busine
 
     assert row[COLUMN["Name"]].startswith("'=")
     assert row[COLUMN["Address"]].startswith("'@")
-    assert row[COLUMN["Phone numbers"]] == "+923001234567"  # phone numbers keep their "+"
+    assert row[COLUMN["Phone numbers"]] == "+923001234567"
 
 
 def test_urdu_and_accented_names_survive(client, make_business, sales_user, auth_headers):
@@ -157,10 +157,10 @@ def test_the_export_is_one_row_per_lead_however_many_contacts_it_has(client, lea
         ("@cmd", "'@cmd"),
         ("\tTab", "'\tTab"),
         ("+cmd|' /C calc'!A0", "'+cmd|' /C calc'!A0"),
-        ("-2+3", "-2+3"),               # looks like a number/phone: left alone
+        ("-2+3", "-2+3"),
         ("+923001234567", "+923001234567"),
         ("+92 300 1234567", "+92 300 1234567"),
-        ("+923004438424; +924235771769", "+923004438424; +924235771769"),  # several numbers in one cell
+        ("+923004438424; +924235771769", "+923004438424; +924235771769"),
         ("Al Noor", "Al Noor"),
         ("", ""),
         (42, 42),

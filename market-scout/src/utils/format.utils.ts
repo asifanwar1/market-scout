@@ -59,9 +59,15 @@ export const formatUsd = (value: number): string =>
 
 export const SOURCE_LABELS: Record<string, string> = {
     osm: "OpenStreetMap",
+    overture: "Overture Maps",
     google_places: "Google Places",
     website_enrichment: "Website",
 };
 
+const IMPORT_PREFIX = "import:";
+
+/** A list brought in from a file is a source named after the list ("import:AEDB installers"). */
+export const isImportSource = (key: string): boolean => key.startsWith(IMPORT_PREFIX);
+
 export const getSourceLabel = (key: string): string =>
-    SOURCE_LABELS[key] ?? key;
+    SOURCE_LABELS[key] ?? (isImportSource(key) ? key.slice(IMPORT_PREFIX.length) : key);

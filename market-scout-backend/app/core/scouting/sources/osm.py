@@ -1,11 +1,11 @@
-"""OpenStreetMap via the Overpass API: free, keyless, but patchy phone coverage in Pakistan
-and a shared public server that throttles hard -- hence the enforced gap between requests."""
 import re
 import time
 from collections.abc import Callable
+from http import HTTPStatus
 
 import httpx
 
+from app.core.constants import CONDITION_OPERATOR_EQUALS
 from app.core.scouting.sources.base import (
     SourceAuthError,
     SourceError,
@@ -14,10 +14,15 @@ from app.core.scouting.sources.base import (
 )
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery, SearchResult
 
+QUERY_TIMEOUT_SECONDS = 60
+RESULT_LIMIT = 1000
+DEFAULT_MIN_INTERVAL_SECONDS = 3.0
+REQUEST_TIMEOUT_SECONDS = 90
+
+
 SOURCE_KEY = "osm"
 
 _CONDITION = re.compile(r"^([A-Za-z0-9_:]+)(=|~)(.+)$")
-# Characters that could end the quoted string or the statement inside an Overpass query.
 _UNSAFE_VALUE = re.compile(r'["\\;\[\]\r\n{}]')
 
 _PHONE_TAGS = ("phone", "contact:phone", "mobile", "contact:mobile", "contact:whatsapp", "whatsapp")
@@ -34,7 +39,7 @@ def _condition_to_ql(condition: str) -> str:
     key, operator, value = match.groups()
     if _UNSAFE_VALUE.search(value):
         raise ValueError(f"Unsafe characters in OSM condition: {condition!r}")
-    if operator == "=":
+    if operator == CONDITION_OPERATOR_EQUALS:
         return f'["{key}"="{value}"]'
     return f'["{key}"~"{value}",i]'
 
@@ -44,7 +49,7 @@ def _area_to_ql(area: SearchArea) -> str:
     return f"({south:.5f},{west:.5f},{north:.5f},{east:.5f})"
 
 
-def build_overpass_query(osm_filter: dict, area: SearchArea, timeout_s: int = 60, limit: int = 1000) -> str:
+def build_overpass_query(osm_filter: dict, area: SearchArea, timeout_s: int = QUERY_TIMEOUT_SECONDS, limit: int = RESULT_LIMIT) -> str:
     statements = []
     for clause in osm_filter["clauses"]:
         conditions = "".join(_condition_to_ql(condition) for condition in clause)
@@ -59,7 +64,7 @@ def parse_elements(elements: list[dict]) -> list[RawBusiness]:
         tags = element.get("tags") or {}
         name = (tags.get("name") or tags.get("name:en") or "").strip()
         if not name:
-            continue  # a nameless point can't be a lead
+            continue
 
         center = element.get("center") or {}
         latitude = element.get("lat", center.get("lat"))
@@ -92,14 +97,14 @@ class OsmSource:
         self,
         endpoint: str,
         user_agent: str,
-        min_interval_s: float = 3.0,
+        min_interval_s: float = DEFAULT_MIN_INTERVAL_SECONDS,
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ):
         self._endpoint = endpoint
         self._min_interval_s = min_interval_s
-        self._client = client or httpx.Client(timeout=90, headers={"User-Agent": user_agent})
+        self._client = client or httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, headers={"User-Agent": user_agent})
         self._sleep = sleep
         self._clock = clock
         self._last_request_at: float | None = None
@@ -113,8 +118,6 @@ class OsmSource:
 
         elements = data.get("elements", [])
         remark = data.get("remark", "")
-        # Overpass answers 200 with a "remark" when it gave up (timeout / out of memory);
-        # partial or empty results in that case must not be mistaken for "nothing found".
         if remark and re.search(r"timed out|out of memory|runtime error", remark, re.IGNORECASE) and not elements:
             raise SourceUnavailableError(f"Overpass gave up: {remark}")
 
@@ -133,14 +136,12 @@ class OsmSource:
             self._client, "POST", self._endpoint, sleep=self._sleep, data={"data": ql}
         )
         self._last_request_at = self._clock()
-        if response.status_code in (403, 406):
-            # Overpass turns away clients it considers anonymous or automated, which includes a
-            # placeholder contact address. Retrying won't help, so this stops the run's searches early.
+        if response.status_code in (HTTPStatus.FORBIDDEN, HTTPStatus.NOT_ACCEPTABLE):
             raise SourceAuthError(
                 f"Overpass refused this app's identification (HTTP {response.status_code}). Set SCOUT_CONTACT_EMAIL to a "
                 "real address you read (not a placeholder such as you@example.com), or leave it blank."
             )
-        if response.status_code != 200:
+        if response.status_code != HTTPStatus.OK:
             raise SourceError(f"Overpass returned HTTP {response.status_code}")
         try:
             return response.json()

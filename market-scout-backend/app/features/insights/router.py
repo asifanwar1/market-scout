@@ -3,7 +3,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db
+from app.core.constants import LIMIT_MIN
+from app.core.dependencies import get_db
 from app.features.auth.dependencies import get_current_user
 from app.features.insights import service
 from app.features.insights.schemas import (
@@ -15,6 +16,17 @@ from app.features.insights.schemas import (
     SourcesResponse,
     TimelineResponse,
 )
+
+DEFAULT_GAP_THRESHOLD = 5
+GAP_THRESHOLD_MAX = 1000
+DEFAULT_TIMELINE_DAYS = 90
+TIMELINE_DAYS_MIN = 7
+TIMELINE_DAYS_MAX = 730
+DEFAULT_MOVERS_DAYS = 30
+MOVERS_DAYS_MAX = 365
+DEFAULT_MOVERS_LIMIT = 10
+MOVERS_LIMIT_MAX = 50
+
 
 router = APIRouter()
 
@@ -32,7 +44,7 @@ def coverage(profile_id: int = Query(...), db: Session = Depends(get_db), _=Depe
 @router.get("/gaps", response_model=GapsResponse)
 def gaps(
     profile_id: int = Query(...),
-    threshold: int = Query(5, ge=1, le=1000, description="Cities with fewer leads than this are gaps"),
+    threshold: int = Query(DEFAULT_GAP_THRESHOLD, ge=1, le=GAP_THRESHOLD_MAX, description="Cities with fewer leads than this are gaps"),
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
@@ -42,7 +54,7 @@ def gaps(
 @router.get("/timeline", response_model=TimelineResponse)
 def timeline(
     profile_id: Optional[int] = Query(None),
-    days: int = Query(90, ge=7, le=730),
+    days: int = Query(DEFAULT_TIMELINE_DAYS, ge=TIMELINE_DAYS_MIN, le=TIMELINE_DAYS_MAX),
     bucket: Bucket = Query(Bucket.WEEK),
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
@@ -58,8 +70,8 @@ def sources(profile_id: Optional[int] = Query(None), db: Session = Depends(get_d
 @router.get("/movers", response_model=MoversResponse)
 def movers(
     profile_id: Optional[int] = Query(None),
-    days: int = Query(30, ge=1, le=365),
-    limit: int = Query(10, ge=1, le=50),
+    days: int = Query(DEFAULT_MOVERS_DAYS, ge=1, le=MOVERS_DAYS_MAX),
+    limit: int = Query(DEFAULT_MOVERS_LIMIT, ge=LIMIT_MIN, le=MOVERS_LIMIT_MAX),
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):

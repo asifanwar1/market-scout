@@ -1,7 +1,6 @@
-
 import pytest
 
-from app.config import settings
+from app.core.config import settings
 from app.core.crypto import decrypt_secret
 from app.features.sources import service as sources_service
 from app.features.sources.models import DataSource
@@ -25,7 +24,7 @@ def test_only_admins_can_see_or_change_sources(client, sales_user, auth_headers)
 def test_default_state_is_free_sources_on_and_paid_source_off(client, admin_user, auth_headers):
     sources = by_key(client, auth_headers(admin_user))
 
-    assert set(sources) == {"osm", "google_places", "website_enrichment"}
+    assert set(sources) == {"osm", "overture", "google_places", "website_enrichment"}
     assert sources["osm"]["is_enabled"] and sources["osm"]["is_available"]
     assert sources["website_enrichment"]["is_available"] and sources["website_enrichment"]["kind"] == "enrichment"
     places = sources["google_places"]
@@ -55,7 +54,7 @@ def test_saving_a_key_enables_places_without_exposing_or_storing_it_in_plaintext
 
     row = db_session.query(DataSource).filter_by(key="google_places").one()
     assert row.encrypted_api_key and KEY not in row.encrypted_api_key
-    assert decrypt_secret(row.encrypted_api_key) == KEY      # trimmed
+    assert decrypt_secret(row.encrypted_api_key) == KEY
     assert sources_service.resolve_api_key(db_session, "google_places") == KEY
 
 
@@ -73,7 +72,6 @@ def test_rejected_change_leaves_state_untouched(client, admin_user, auth_headers
     headers = auth_headers(admin_user)
     client.put("/api/v1/sources/google_places", headers=headers, json={"api_key": KEY})
 
-    # A key source can't be enabled while its key is being removed in the same request.
     response = client.put(
         "/api/v1/sources/google_places", headers=headers, json={"is_enabled": True, "clear_api_key": True}
     )
@@ -109,7 +107,6 @@ def test_environment_key_is_used_when_none_is_saved(client, admin_user, auth_hea
     enabled = client.put("/api/v1/sources/google_places", headers=headers, json={"is_enabled": True})
     assert enabled.status_code == 200 and enabled.json()["is_available"] is True
 
-    # A key saved from the UI takes precedence over the environment.
     saved = client.put("/api/v1/sources/google_places", headers=headers, json={"api_key": KEY}).json()
     assert saved["key_source"] == "saved" and saved["key_hint"] == "…1234"
 
@@ -147,7 +144,6 @@ def test_connection_test_uses_the_real_source_object(client, admin_user, auth_he
     ok = client.post("/api/v1/sources/osm/test", headers=headers)
     assert ok.json() == {"ok": True, "message": "reachable"} and built["keys"] == ["osm"]
 
-    # A key source with no key never reaches the network.
     no_key = client.post("/api/v1/sources/google_places/test", headers=headers).json()
     assert no_key["ok"] is False and "key" in no_key["message"].lower()
 
@@ -178,6 +174,78 @@ def test_user_agent_identifies_the_app_and_optionally_a_contact(monkeypatch):
 
 @pytest.mark.parametrize("placeholder", ["you@example.com", "a@EXAMPLE.org", "x@mail.example.net", "me@localhost", "a@b.test", "a@b.invalid"])
 def test_a_placeholder_contact_address_is_not_sent(monkeypatch, placeholder):
-    # Overpass answers a placeholder address with "406 Not Acceptable"; leaving it out works.
     monkeypatch.setattr(settings, "SCOUT_CONTACT_EMAIL", placeholder)
     assert sources_service.user_agent() == "MarketScout/0.1"
+
+
+@pytest.fixture()
+def overture_file(tmp_path, monkeypatch):
+    path = tmp_path / "overture.sqlite"
+    monkeypatch.setattr(settings, "OVERTURE_DB_PATH", str(path))
+    return path
+
+
+def make_overture_file(path):
+    from app.core.scouting import overture_store
+
+    overture_store.write_store(
+        path,
+        [{"id": "g1", "name": "Noor Solar", "categories": ["solar_installation"], "confidence": 0.9, "latitude": 31.5, "longitude": 74.3}],
+        release="2026-09-23.1",
+    )
+
+
+def test_overture_is_unavailable_until_its_data_is_downloaded(client, admin_user, auth_headers, overture_file, db_session):
+    overture = by_key(client, auth_headers(admin_user))["overture"]
+
+    assert overture["is_enabled"] is True and overture["requires_dataset"] is True
+    assert overture["dataset_ready"] is False and overture["is_available"] is False
+    assert "scripts.download_overture" in overture["dataset_note"]
+    assert "overture" not in sources_service.get_available_discovery_keys(db_session)
+
+
+def test_overture_becomes_available_once_the_data_is_there(client, admin_user, auth_headers, overture_file, db_session):
+    make_overture_file(overture_file)
+
+    overture = by_key(client, auth_headers(admin_user))["overture"]
+
+    assert overture["dataset_ready"] is True and overture["is_available"] is True
+    assert "2026-09-23.1" in overture["dataset_note"] and "1 places" in overture["dataset_note"]
+    assert "overture" in sources_service.get_available_discovery_keys(db_session)
+
+
+def test_switching_overture_off_makes_it_unavailable_even_with_the_data(client, admin_user, auth_headers, overture_file):
+    make_overture_file(overture_file)
+    headers = auth_headers(admin_user)
+
+    off = client.put("/api/v1/sources/overture", headers=headers, json={"is_enabled": False}).json()
+
+    assert off["dataset_ready"] is True and off["is_available"] is False
+
+
+def test_other_sources_do_not_depend_on_a_download(client, admin_user, auth_headers, overture_file):
+    sources = by_key(client, auth_headers(admin_user))
+
+    assert sources["osm"]["requires_dataset"] is False and sources["osm"]["dataset_ready"] is True
+    assert sources["osm"]["dataset_note"] is None
+
+
+def test_overture_connection_test_says_what_is_missing_or_how_much_is_there(client, admin_user, auth_headers, overture_file):
+    headers = auth_headers(admin_user)
+
+    missing = client.post("/api/v1/sources/overture/test", headers=headers).json()
+    assert missing["ok"] is False and "not been downloaded" in missing["message"]
+
+    make_overture_file(overture_file)
+    found = client.post("/api/v1/sources/overture/test", headers=headers).json()
+    assert found["ok"] is True and "2026-09-23.1" in found["message"]
+
+
+def test_build_sources_makes_an_overture_source_that_uses_the_configured_file(db_session, overture_file, monkeypatch):
+    from app.core.scouting.sources.overture import OvertureSource
+
+    monkeypatch.setattr(settings, "OVERTURE_MIN_CONFIDENCE", 0.55)
+    built = sources_service.build_sources(db_session, ["overture"])["overture"]
+
+    assert isinstance(built, OvertureSource)
+    assert built._path == str(overture_file) and built._min_confidence == 0.55

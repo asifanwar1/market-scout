@@ -16,8 +16,6 @@ def test_column_letters(index, letters):
     assert column_letter(index) == letters
 
 
-# ---- connecting -------------------------------------------------------------------------
-
 def test_reports_the_spreadsheet_title(account, make_client):
     with make_client(account) as client:
         assert client.spreadsheet_title(SPREADSHEET_ID) == "Sales leads"
@@ -54,8 +52,6 @@ def test_an_uploaded_excel_file_is_explained(account, make_client, fake_google):
             client.spreadsheet_title(SPREADSHEET_ID)
 
 
-# ---- writing ----------------------------------------------------------------------------
-
 def test_creates_the_worksheet_and_writes_header_then_rows(account, make_client, fake_google):
     with make_client(account) as client:
         written = client.replace_worksheet(SPREADSHEET_ID, "Leads", HEADER, _rows(3))
@@ -81,7 +77,7 @@ def test_writing_twice_gives_an_identical_sheet(account, make_client, fake_googl
         client.replace_worksheet(SPREADSHEET_ID, "Leads", HEADER, _rows(5))
 
     assert fake_google.table(SPREADSHEET_ID, "Leads") == first
-    assert list(fake_google.spreadsheets[SPREADSHEET_ID]["sheets"]) == ["Sheet1", "Leads"]  # no second copy
+    assert list(fake_google.spreadsheets[SPREADSHEET_ID]["sheets"]) == ["Sheet1", "Leads"]
 
 
 def test_fewer_rows_than_last_time_leave_nothing_behind(account, make_client, fake_google):
@@ -109,7 +105,7 @@ def test_no_leads_leaves_just_the_header(account, make_client, fake_google):
 
 
 def test_more_rows_than_the_default_grid_grows_it_and_is_written_in_chunks(account, make_client, fake_google):
-    count = WRITE_CHUNK_ROWS * 2 + 500  # bigger than a new worksheet's 1000 rows, and three chunks
+    count = WRITE_CHUNK_ROWS * 2 + 500
     fake_google.add_spreadsheet("1LargeSpreadsheet0000000000000000000", worksheets={"Leads": [HEADER]})
     with make_client(account) as client:
         client.replace_worksheet("1LargeSpreadsheet0000000000000000000", "Leads", HEADER, _rows(count))
@@ -158,12 +154,10 @@ def test_values_stay_text_and_are_capped(account, make_client, fake_google):
         client.replace_worksheet(SPREADSHEET_ID, "Leads", HEADER, rows)
 
     table = fake_google.table(SPREADSHEET_ID, "Leads")
-    assert table[1][1] == '=HYPERLINK("http://evil","x")'  # sent RAW, so Sheets keeps it as text
+    assert table[1][1] == '=HYPERLINK("http://evil","x")'
     assert len(table[1][2]) == MAX_CELL_CHARS
-    assert table[2] == [2, "", 4.5]  # a missing value is an empty cell, not the word None
+    assert table[2] == [2, "", 4.5]
 
-
-# ---- resilience --------------------------------------------------------------------------------
 
 def test_signs_in_once_per_sync(account, make_client, fake_google):
     with make_client(account) as client:

@@ -1,18 +1,7 @@
-"""Pakistan's country > province > city hierarchy with a search area per city.
-
-Coordinates are city-centre approximations and radius_km is the search radius (about 4-6 km for a
-small town, 8-12 for a district city, up to 30 for Karachi). They are starting values: adjust
-them from the Locations screen if a city's search area is off. Running the seed again only adds
-what is missing; it never changes a city that already exists.
-"""
-
 COUNTRY = "Pakistan"
 
-# province -> [(city, latitude, longitude, radius_km), ...]
-# Islamabad Capital Territory is a federal territory, listed alongside the provinces.
 REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
     "Punjab": [
-        # Major cities
         ("Lahore", 31.5204, 74.3587, 20),
         ("Faisalabad", 31.4504, 73.1350, 12),
         ("Rawalpindi", 33.5651, 73.0169, 12),
@@ -29,7 +18,6 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Dera Ghazi Khan", 30.0561, 70.6348, 8),
         ("Kasur", 31.1187, 74.4500, 8),
         ("Okara", 30.8138, 73.4534, 8),
-        # District headquarters and large towns
         ("Attock", 33.7660, 72.3609, 6),
         ("Bahawalnagar", 29.9987, 73.2536, 6),
         ("Bhakkar", 31.6082, 71.0654, 6),
@@ -50,7 +38,6 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Rajanpur", 29.1044, 70.3250, 5),
         ("Toba Tek Singh", 30.9709, 72.4826, 6),
         ("Vehari", 30.0452, 72.3489, 6),
-        # Other towns and cities
         ("Ahmedpur East", 29.1431, 71.2578, 5),
         ("Burewala", 30.1667, 72.6500, 6),
         ("Chishtian", 29.7961, 72.8577, 5),
@@ -83,14 +70,12 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Wazirabad", 32.4432, 74.1200, 6),
     ],
     "Sindh": [
-        # Major cities
         ("Karachi", 24.8607, 67.0011, 30),
         ("Hyderabad", 25.3960, 68.3578, 12),
         ("Sukkur", 27.7052, 68.8574, 8),
         ("Larkana", 27.5570, 68.2028, 8),
         ("Nawabshah", 26.2483, 68.4096, 8),
         ("Mirpur Khas", 25.5276, 69.0111, 8),
-        # District headquarters and large towns
         ("Badin", 24.6560, 68.8370, 6),
         ("Dadu", 26.7319, 67.7750, 6),
         ("Ghotki", 28.0060, 69.3150, 5),
@@ -110,7 +95,6 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Tando Muhammad Khan", 25.1230, 68.5360, 5),
         ("Thatta", 24.7461, 67.9236, 5),
         ("Umerkot", 25.3614, 69.7362, 5),
-        # Other towns and cities
         ("Daharki", 28.4640, 69.5260, 4),
         ("Digri", 25.1600, 69.1100, 4),
         ("Gambat", 27.3500, 68.5200, 4),
@@ -130,7 +114,6 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Ubauro", 28.1670, 69.7330, 4),
     ],
     "Khyber Pakhtunkhwa": [
-        # Major cities
         ("Peshawar", 34.0151, 71.5249, 15),
         ("Mardan", 34.1989, 72.0400, 8),
         ("Abbottabad", 34.1688, 73.2215, 8),
@@ -138,7 +121,6 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Kohat", 33.5869, 71.4414, 8),
         ("Dera Ismail Khan", 31.8626, 70.9019, 8),
         ("Bannu", 32.9889, 70.6056, 8),
-        # District headquarters and large towns
         ("Battagram", 34.6770, 73.0230, 4),
         ("Buner", 34.5100, 72.4900, 5),
         ("Charsadda", 34.1453, 71.7308, 6),
@@ -154,7 +136,6 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Swabi", 34.1200, 72.4700, 6),
         ("Tank", 32.2170, 70.3830, 4),
         ("Timergara", 34.8260, 71.8450, 4),
-        # Other towns and cities
         ("Batkhela", 34.6150, 71.9700, 4),
         ("Besham", 34.9300, 72.8800, 4),
         ("Chakdara", 34.6510, 72.0210, 4),
@@ -175,14 +156,12 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Wana", 32.3000, 69.5700, 4),
     ],
     "Balochistan": [
-        # Major cities
         ("Quetta", 30.1798, 66.9750, 15),
         ("Hub", 25.0431, 66.9066, 10),
         ("Gwadar", 25.1216, 62.3254, 10),
         ("Khuzdar", 27.8000, 66.6100, 8),
         ("Turbat", 26.0012, 63.0544, 8),
         ("Sibi", 29.5430, 67.8773, 6),
-        # District headquarters and large towns
         ("Awaran", 26.4560, 65.2310, 4),
         ("Chaman", 30.9210, 66.4590, 6),
         ("Dera Allah Yar", 28.3720, 68.3530, 4),
@@ -201,7 +180,6 @@ REGIONS: dict[str, list[tuple[str, float, float, float]]] = {
         ("Uthal", 25.8070, 66.6200, 4),
         ("Zhob", 31.3410, 69.4490, 6),
         ("Ziarat", 30.3800, 67.7260, 4),
-        # Other towns and cities
         ("Bela", 26.2300, 66.3100, 4),
         ("Duki", 30.1500, 68.5700, 4),
         ("Gadani", 25.1190, 66.7260, 4),

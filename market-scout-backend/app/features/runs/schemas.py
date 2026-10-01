@@ -5,6 +5,12 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.features.runs.models import RunStatus, TaskStatus
 
+CITIES_MAX = 100
+SOURCES_MAX = 5
+SEGMENTS_MAX = 30
+PAID_REQUESTS_MAX = 100_000
+
+
 
 def _dedupe(values: list) -> list:
     return list(dict.fromkeys(values))
@@ -12,16 +18,12 @@ def _dedupe(values: list) -> list:
 
 class RunCreate(BaseModel):
     profile_id: int
-    # Any level: provinces and the country are expanded to the cities inside them.
-    geography_ids: list[int] = Field(min_length=1, max_length=100)
-    source_keys: list[str] = Field(min_length=1, max_length=5)
-    # Limit the run to some of the profile's segments; omit for all of them.
-    segment_slugs: Optional[list[str]] = Field(default=None, min_length=1, max_length=30)
+    geography_ids: list[int] = Field(min_length=1, max_length=CITIES_MAX)
+    source_keys: list[str] = Field(min_length=1, max_length=SOURCES_MAX)
+    segment_slugs: Optional[list[str]] = Field(default=None, min_length=1, max_length=SEGMENTS_MAX)
     enrich_websites: bool = True
-    # Repeat searches that already finished recently instead of skipping them.
     refresh: bool = False
-    # Stop spending once this many billable requests have been made.
-    max_paid_requests: Optional[int] = Field(default=None, ge=1, le=100_000)
+    max_paid_requests: Optional[int] = Field(default=None, ge=1, le=PAID_REQUESTS_MAX)
 
     @field_validator("geography_ids", "source_keys")
     @classmethod
@@ -54,7 +56,6 @@ class RunEstimateResponse(BaseModel):
     paid_requests_max: int
     estimated_cost_usd: float
     estimated_minutes: int
-    # False when the run would be refused (too many searches).
     allowed: bool
     warnings: list[str]
 

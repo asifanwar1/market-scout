@@ -1,10 +1,3 @@
-"""Imports every ORM model in one place.
-
-SQLAlchemy resolves relationships between models by name ("Business" on Geography), which
-only works once every model class has been imported. Entry points that don't go through
-``app.main`` (Alembic, scripts, a shell) would otherwise fail with "failed to locate a name".
-Add each new model here.
-"""
 from app.features.businesses.models import (  # noqa: F401
     Business,
     BusinessClassification,
@@ -13,6 +6,7 @@ from app.features.businesses.models import (  # noqa: F401
 )
 from app.features.compliance.models import DoNotContact  # noqa: F401
 from app.features.geographies.models import Geography  # noqa: F401
+from app.features.imports.models import Import  # noqa: F401
 from app.features.insights.models import BusinessSnapshot  # noqa: F401
 from app.features.profiles.models import Profile, ProfileSearchTerm, ProfileSegment  # noqa: F401
 from app.features.runs.models import Run, RunTask, run_geographies  # noqa: F401

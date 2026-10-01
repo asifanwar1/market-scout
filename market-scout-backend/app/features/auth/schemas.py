@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.core.constants import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, TOKEN_TYPE_BEARER
 from app.core.security import validate_password_strength
 
 
@@ -11,7 +12,7 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"
+    token_type: str = TOKEN_TYPE_BEARER
 
 
 class RefreshRequest(BaseModel):
@@ -20,7 +21,7 @@ class RefreshRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
     @field_validator("new_password")
     @classmethod

@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_db
 from app.core.limiter import limiter, login_rate_limit_key
-from app.dependencies import get_db
 from app.features.auth import service
 from app.features.auth.dependencies import get_current_user
 from app.features.auth.schemas import (
@@ -25,8 +25,6 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
     return service.login(db, login_data.email, login_data.password)
 
 
-# OAuth2 form-based endpoint so Swagger UI "Authorize" works correctly.
-# username field maps to email per OAuth2 convention.
 @router.post("/token", response_model=TokenResponse, include_in_schema=False)
 @limiter.limit("10/minute", key_func=login_rate_limit_key)
 def token_login(

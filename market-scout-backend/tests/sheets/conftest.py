@@ -61,8 +61,6 @@ def fake_google(rsa_pems) -> FakeGoogle:
 
 @pytest.fixture()
 def make_client(fake_google):
-    """Builds a SheetsClient that talks to the fake instead of the internet."""
-
     def handler(request: httpx.Request) -> httpx.Response:
         status, body = fake_google.handle(
             request.method,

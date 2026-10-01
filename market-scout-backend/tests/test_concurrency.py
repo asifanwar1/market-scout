@@ -1,6 +1,3 @@
-"""SQLite lets many readers and one writer at a time. These tests use a real database file and real
-competing connections (the rest of the suite shares one connection), to keep the background run and
-everything else that writes from colliding."""
 import threading
 import time
 from datetime import UTC, datetime
@@ -8,8 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.config import settings
+from app.core.database import WRITE_INTENT, Base, build_engine, make_sessionmakers
 from app.core.security import hash_password
-from app.database import WRITE_INTENT, Base, build_engine, make_sessionmakers
 from app.features.businesses import service as businesses_service
 from app.features.businesses.models import Business
 from app.features.businesses.schemas import BusinessUpdate
@@ -26,7 +24,6 @@ from tests.test_runs import FakeSource, builder, raw
 
 @pytest.fixture()
 def real_db(tmp_path):
-    """A throwaway database file with its own engine, profile and admin."""
     engine = build_engine(f"sqlite:///{tmp_path / 'concurrent.db'}")
     Base.metadata.create_all(engine)
     read, write, worker = make_sessionmakers(engine)
@@ -53,7 +50,6 @@ def queue_run(real, segments=("dealer",), cities=("lahore",)) -> int:
 
 
 def another_connection_commits(real, n: int = 1) -> None:
-    """What the API or a sheet sync does at any moment: a write that commits while the run is busy."""
     for _ in range(n):
         with real.write() as other:
             setting = other.get(AppSetting, "noise")
@@ -64,11 +60,7 @@ def another_connection_commits(real, n: int = 1) -> None:
             other.commit()
 
 
-# ---- the bug this guards against ---------------------------------------------------------------------
-
 def test_a_run_survives_other_writes_committing_while_it_waits_on_the_network(real_db):
-    """A search is a network call; the API, a sheet sync or a person editing a lead commits in that
-    gap. The run must carry on (before this was fixed: "database is locked", the search failed)."""
     run_id = queue_run(real_db)
     source = FakeSource("osm", [raw(n) for n in range(1, 6)], on_search=lambda _query: another_connection_commits(real_db))
 
@@ -81,18 +73,16 @@ def test_a_run_survives_other_writes_committing_while_it_waits_on_the_network(re
         assert run.tasks_failed == 0 and run.tasks_done == run.tasks_total > 0
         assert db.query(Business).count() == 5
         assert all(task.status == TaskStatus.DONE.value for task in run.tasks)
-        assert db.get(AppSetting, "noise").value["n"] == run.tasks_total  # every competing write also landed
+        assert db.get(AppSetting, "noise").value["n"] == run.tasks_total
 
 
 def test_no_transaction_is_held_open_while_a_search_waits_on_the_network(real_db):
-    """If the worker held a write lock across the network call, every edit in the app would freeze
-    behind a slow search. Prove another writer can get in *during* the search."""
     run_id = queue_run(real_db)
     waited = []
 
     def during_search(_query):
         started = datetime.now(UTC)
-        another_connection_commits(real_db)  # would block until the 15 s timeout if the worker held the lock
+        another_connection_commits(real_db)
         waited.append((datetime.now(UTC) - started).total_seconds())
 
     source = FakeSource("osm", [raw(1)], on_search=during_search)
@@ -103,7 +93,6 @@ def test_no_transaction_is_held_open_while_a_search_waits_on_the_network(real_db
 
 
 def test_editing_leads_while_a_run_is_ingesting_never_fails(real_db):
-    """The real collision: a person edits leads (read, then write) while the worker ingests."""
     run_id = queue_run(real_db)
     errors: list[Exception] = []
     stop = threading.Event()
@@ -113,7 +102,7 @@ def test_editing_leads_while_a_run_is_ingesting_never_fails(real_db):
         counter = 0
         while not stop.is_set():
             try:
-                with real_db.write() as api_db:  # how a PATCH request is served
+                with real_db.write() as api_db:
                     lead = api_db.query(Business).first()
                     if lead is None:
                         time.sleep(0.01)
@@ -121,7 +110,7 @@ def test_editing_leads_while_a_run_is_ingesting_never_fails(real_db):
                     businesses_service.update_business(api_db, lead.id, BusinessUpdate(notes=f"edit {counter}"))
                     counter += 1
                     edits.append(counter)
-            except Exception as exc:  # any failure here is the bug
+            except Exception as exc:
                 errors.append(exc)
                 return
 
@@ -142,20 +131,15 @@ def test_editing_leads_while_a_run_is_ingesting_never_fails(real_db):
         assert run.tasks_failed == 0
 
 
-# ---- the session types -------------------------------------------------------------------------------------------
-
 def test_write_sessions_lock_up_front_and_read_sessions_do_not(real_db):
     with real_db.read() as reader, real_db.write() as writer:
         assert WRITE_INTENT not in reader.get_bind().get_execution_options()
         assert writer.get_bind().get_execution_options().get(WRITE_INTENT) is True
 
-        # A reader is never blocked by an open writer (WAL), which is what keeps the screens snappy.
         writer.add(AppSetting(key="held", value={}))
         writer.flush()
         assert reader.query(User).count() == 1
 
-        # A second writer can't start until the first is done (here it gives up after 0.2 s), rather than
-        # starting on a snapshot that goes stale and failing later.
         second = real_db.engine.execution_options(**{WRITE_INTENT: True}).connect()
         try:
             second.connection.driver_connection.execute("PRAGMA busy_timeout=200")
@@ -167,20 +151,18 @@ def test_write_sessions_lock_up_front_and_read_sessions_do_not(real_db):
 
 
 def test_the_worker_session_keeps_loaded_objects_after_a_commit(real_db):
-    """Otherwise reading an attribute after a commit would silently open a transaction (and take the
-    write lock) right before the network call."""
     run_id = queue_run(real_db)
     with real_db.worker() as db:
         run = db.get(Run, run_id)
         run.status = RunStatus.RUNNING.value
         db.commit()
         assert not db.in_transaction()
-        assert run.status == RunStatus.RUNNING.value  # no refresh happened
+        assert run.status == RunStatus.RUNNING.value
         assert not db.in_transaction()
 
 
 def test_requests_that_change_data_get_a_write_session_and_reads_do_not():
-    from app.dependencies import get_db
+    from app.core.dependencies import get_db
 
     def session_for(method: str):
         generator = get_db(SimpleNamespace(method=method))
@@ -191,3 +173,94 @@ def test_requests_that_change_data_get_a_write_session_and_reads_do_not():
 
     assert [session_for(m) for m in ("GET", "HEAD", "OPTIONS")] == [None, None, None]
     assert [session_for(m) for m in ("POST", "PUT", "PATCH", "DELETE")] == [True, True, True, True]
+
+
+def test_an_import_and_people_editing_leads_do_not_collide(real_db, monkeypatch):
+    from app.features.imports import service as imports_service
+    from app.features.imports.models import Import, ImportStatus
+    from app.features.imports.schemas import ColumnMapping, ImportOptions
+
+    monkeypatch.setattr(imports_service, "BATCH_SIZE", 15)
+    rows = "\n".join(f"Solar Shop {n},0300 {n:07d},Lahore" for n in range(1, 241))
+    content = f"Company,Phone,City\n{rows}\n".encode()
+
+    with real_db.write() as db:
+        profile = db.query(Profile).one()
+        admin = db.query(User).one()
+        options = ImportOptions(label="Concurrent list", profile_id=profile.id, mapping=ColumnMapping(name="Company", phones=["Phone"], city="City"))
+        import_id = imports_service.create_import(db, "list.csv", content, options, admin.id).id
+
+    errors: list[Exception] = []
+    stop = threading.Event()
+
+    def edit_leads():
+        counter = 0
+        while not stop.is_set():
+            try:
+                with real_db.write() as api_db:
+                    lead = api_db.query(Business).first()
+                    if lead is None:
+                        time.sleep(0.005)
+                        continue
+                    businesses_service.update_business(api_db, lead.id, BusinessUpdate(notes=f"edit {counter}"))
+                    counter += 1
+            except Exception as exc:
+                errors.append(exc)
+                return
+
+    editor = threading.Thread(target=edit_leads)
+    editor.start()
+    try:
+        with real_db.worker() as db:
+            imports_service.execute_import(db, import_id)
+    finally:
+        stop.set()
+        editor.join(timeout=30)
+
+    assert not errors, f"an edit failed during the import: {errors[0]!r}"
+    with real_db.read() as db:
+        record = db.get(Import, import_id)
+        assert record.status == ImportStatus.COMPLETED.value, record.error
+        assert record.stats["new"] == 240 and record.stats["errors"] == 0
+        assert db.query(Business).count() == 240
+
+
+def test_a_long_import_leaves_room_for_other_saves(real_db, monkeypatch):
+    from app.features.imports import service as imports_service
+    from app.features.imports.schemas import ColumnMapping, ImportOptions
+
+    monkeypatch.setattr(settings, "IMPORT_BATCH_PAUSE_SECONDS", 0.15)
+    rows = "\n".join(f"Volt Traders {n},03{n % 5}{10_000_000 + n},Lahore" for n in range(1, 1501))
+    content = f"Company,Phone,City\n{rows}\n".encode()
+    with real_db.write() as db:
+        profile, admin = db.query(Profile).one(), db.query(User).one()
+        options = ImportOptions(label="Long list", profile_id=profile.id, mapping=ColumnMapping(name="Company", phones=["Phone"], city="City"))
+        import_id = imports_service.create_import(db, "list.csv", content, options, admin.id).id
+
+    waits: list[float] = []
+    stop = threading.Event()
+
+    def other_saves():
+        while not stop.is_set():
+            started = time.monotonic()
+            with real_db.write() as db:
+                setting = db.get(AppSetting, "noise")
+                if setting is None:
+                    db.add(AppSetting(key="noise", value={"n": 1}))
+                else:
+                    setting.value = {"n": setting.value["n"] + 1}
+                db.commit()
+            waits.append(time.monotonic() - started)
+            time.sleep(0.1)
+
+    saver = threading.Thread(target=other_saves)
+    saver.start()
+    try:
+        with real_db.worker() as db:
+            imports_service.execute_import(db, import_id)
+    finally:
+        stop.set()
+        saver.join(timeout=60)
+
+    assert len(waits) >= 5, "other saves barely got a turn while the import ran"
+    assert max(waits) < 4, f"a save waited {max(waits):.1f}s behind the import"

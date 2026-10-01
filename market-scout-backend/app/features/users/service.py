@@ -1,9 +1,13 @@
 from sqlalchemy.orm import Session
 
+from app.core.constants import FIRST_PAGE
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.core.security import hash_password
 from app.features.users.models import User, UserRole
 from app.features.users.schemas import UserCreate, UserUpdate
+
+DEFAULT_LIMIT = 10
+
 
 
 def _normalize_email(email: str) -> str:
@@ -12,8 +16,8 @@ def _normalize_email(email: str) -> str:
 
 def get_users(
     db: Session,
-    page: int = 1,
-    limit: int = 10,
+    page: int = FIRST_PAGE,
+    limit: int = DEFAULT_LIMIT,
     search: str | None = None,
     role: UserRole | None = None,
 ) -> dict:
@@ -66,8 +70,6 @@ def update_user(db: Session, user_id: int, user_in: UserUpdate, acting_user_id: 
     user = get_user_by_id(db, user_id)
     update_data = user_in.model_dump(exclude_unset=True)
 
-    # An admin locking themselves out (or the last admin demoting themselves) leaves
-    # nobody able to manage users.
     if user.id == acting_user_id:
         if update_data.get("is_active") is False:
             raise BadRequestException("You cannot deactivate your own account")
@@ -83,7 +85,6 @@ def update_user(db: Session, user_id: int, user_in: UserUpdate, acting_user_id: 
     if update_data.get("password") is not None:
         user.hashed_password = hash_password(update_data["password"])
 
-    # Role, status and password changes must end the user's existing sessions.
     if {"role", "is_active", "password"} & update_data.keys():
         user.token_version += 1
 

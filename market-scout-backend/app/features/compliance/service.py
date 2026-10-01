@@ -4,27 +4,25 @@ from collections.abc import Iterable
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.constants import FIRST_PAGE
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.scouting.normalize import extract_phones, normalize_email
 from app.features.businesses.models import Business, ContactKind, ContactPoint
 from app.features.compliance.models import DoNotContact
 from app.features.compliance.schemas import DoNotContactCreate
 
+KIND_BUSINESS = "business"
+KIND_PHONE = "phone"
+KIND_EMAIL = "email"
+
+
+DEFAULT_LIMIT = 20
+
+
 _PHONE_KINDS = (ContactKind.PHONE.value, ContactKind.WHATSAPP.value)
 
 
-# ---- the blocking rule ----------------------------------------------------------
-#
-# A business is blocked if (a) it was blocked directly, or (b) any of its phone numbers or
-# emails matches a blocked identifier. Everything that shows leads to a person (lists,
-# detail, exports, the live sheet) and everything that stores them (ingest) goes through
-# these two helpers so the rule lives in one place.
-
 def not_blocked_filter():
-    """SQLAlchemy condition that keeps only businesses that may be contacted."""
-    # The NULL filter on blocked_directly is load-bearing: standalone phone/email rows have no
-    # business_id, and "id NOT IN (..., NULL)" is never true in SQL, which would silently hide
-    # every business as soon as one such row exists. (The other two are only defensive.)
     blocked_directly = select(DoNotContact.business_id).where(DoNotContact.business_id.isnot(None))
     blocked_phones = select(DoNotContact.phone).where(DoNotContact.phone.isnot(None))
     blocked_emails = select(DoNotContact.email).where(DoNotContact.email.isnot(None))
@@ -42,7 +40,6 @@ def is_business_blocked(db: Session, business_id: int) -> bool:
 
 
 def identifiers_blocked(db: Session, phones: Iterable[str], emails: Iterable[str]) -> bool:
-    """Whether any of these (normalised) phones/emails is on the list, whoever owns it."""
     phones, emails = list(phones), list(emails)
     conditions = []
     if phones:
@@ -53,8 +50,6 @@ def identifiers_blocked(db: Session, phones: Iterable[str], emails: Iterable[str
         return False
     return db.query(DoNotContact.id).filter(or_(*conditions)).first() is not None
 
-
-# ---- adding / removing ------------------------------------------------------------
 
 def block_business(db: Session, business_id: int, reason: str | None, added_by_id: int) -> DoNotContact:
     business = db.query(Business).filter(Business.id == business_id).first()
@@ -67,7 +62,7 @@ def block_business(db: Session, business_id: int, reason: str | None, added_by_i
         .first()
     )
     if existing:
-        return existing  # blocking twice is harmless
+        return existing
 
     root = DoNotContact(business_id=business.id, reason=reason, added_by_id=added_by_id)
     db.add(root)
@@ -124,7 +119,6 @@ def remove_entry(db: Session, entry_id: int) -> None:
     if entry is None:
         raise NotFoundException("Entry not found")
 
-    # Un-blocking a business lifts the whole block: the business row and its identifiers.
     if entry.business_id is not None:
         db.query(DoNotContact).filter(DoNotContact.business_id == entry.business_id).delete(synchronize_session=False)
     else:
@@ -132,11 +126,7 @@ def remove_entry(db: Session, entry_id: int) -> None:
     db.commit()
 
 
-# ---- reading -------------------------------------------------------------------------
-
-def get_entries(db: Session, page: int = 1, limit: int = 20, search: str | None = None) -> dict:
-    """The list people manage: one line per blocked business, plus standalone phones/emails.
-    (The per-identifier rows that back a blocked business stay out of sight.)"""
+def get_entries(db: Session, page: int = FIRST_PAGE, limit: int = DEFAULT_LIMIT, search: str | None = None) -> dict:
     query = db.query(DoNotContact).outerjoin(Business, Business.id == DoNotContact.business_id).filter(
         or_(
             and_(DoNotContact.business_id.isnot(None), DoNotContact.phone.is_(None), DoNotContact.email.is_(None)),
@@ -165,7 +155,6 @@ def to_response(db: Session, entry: DoNotContact) -> dict:
 
 
 def _lookup(db: Session, entries: list[DoNotContact]) -> tuple[dict[int, str], dict[int, list[str]]]:
-    """Business names and blocked identifiers for the entries' businesses, in two queries."""
     business_ids = [entry.business_id for entry in entries if entry.business_id is not None]
     if not business_ids:
         return {}, {}
@@ -182,17 +171,17 @@ def _lookup(db: Session, entries: list[DoNotContact]) -> tuple[dict[int, str], d
 
 def _to_response(entry: DoNotContact, names: dict[int, str], identifiers: dict[int, list[str]]) -> dict:
     if entry.phone is None and entry.email is None:
-        kind, value = "business", names.get(entry.business_id, f"Business #{entry.business_id}")
+        kind, value = KIND_BUSINESS, names.get(entry.business_id, f"Business #{entry.business_id}")
     elif entry.phone is not None:
-        kind, value = "phone", entry.phone
+        kind, value = KIND_PHONE, entry.phone
     else:
-        kind, value = "email", entry.email
+        kind, value = KIND_EMAIL, entry.email
     return {
         "id": entry.id,
         "kind": kind,
         "value": value,
         "business_id": entry.business_id,
-        "identifiers": sorted(identifiers.get(entry.business_id, [])) if kind == "business" else [],
+        "identifiers": sorted(identifiers.get(entry.business_id, [])) if kind == KIND_BUSINESS else [],
         "reason": entry.reason,
         "added_by_id": entry.added_by_id,
         "created_at": entry.created_at,

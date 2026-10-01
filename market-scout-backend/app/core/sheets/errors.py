@@ -1,6 +1,6 @@
 class SheetsError(Exception):
-    """Something went wrong talking to Google Sheets. The message is safe to show to a person."""
+    pass
 
 
 class SheetsAuthError(SheetsError):
-    """Google refused the service-account key itself."""
+    pass

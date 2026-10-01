@@ -4,7 +4,7 @@ from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, Str
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.database import Base
+from app.core.database import Base
 
 
 class TermLanguage(str, PyEnum):

@@ -42,7 +42,6 @@ def test_rectangle_from_radius_is_centred_and_scaled():
     rect = area_to_rectangle(LAHORE)
     assert rect["low"]["latitude"] < 31.5204 < rect["high"]["latitude"]
     assert rect["high"]["latitude"] - rect["low"]["latitude"] == pytest.approx(2 * 20 / 111.32)
-    # Longitude degrees are shorter at this latitude, so the box is wider in degrees.
     assert (rect["high"]["longitude"] - rect["low"]["longitude"]) > (rect["high"]["latitude"] - rect["low"]["latitude"])
 
     bbox = area_to_rectangle(SearchArea(0, 0, 1, bbox=(1.0, 2.0, 3.0, 4.0)))
@@ -96,7 +95,7 @@ def test_follows_pagination_up_to_three_pages():
 
     result = make_source(handler).search(QUERY)
 
-    assert tokens == [None, "token-1", "token-2"]           # never asks for a 4th page
+    assert tokens == [None, "token-1", "token-2"]
     assert len(result.businesses) == 3
     assert result.requests_made == 3
 

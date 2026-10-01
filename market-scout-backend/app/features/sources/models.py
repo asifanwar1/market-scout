@@ -1,12 +1,10 @@
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, Text
 from sqlalchemy.sql import func
 
-from app.database import Base
+from app.core.database import Base
 
 
 class DataSource(Base):
-    """Per-installation state of a source from the code-defined catalogue: on/off and its key."""
-
     __tablename__ = "sources"
 
     id = Column(Integer, primary_key=True, index=True)

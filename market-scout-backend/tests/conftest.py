@@ -3,16 +3,14 @@ import os
 import shutil
 import tempfile
 
-# Point the app at a throwaway SQLite file *before* importing it. A file (not
-# ":memory:") because the background worker uses connections from other threads.
 _TEST_DB_DIR = tempfile.mkdtemp(prefix="market-scout-tests-")
 atexit.register(shutil.rmtree, _TEST_DB_DIR, ignore_errors=True)
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_DIR}/test.db"
+os.environ["IMPORTS_DIR"] = f"{_TEST_DB_DIR}/imports"
+os.environ["OVERTURE_DB_PATH"] = f"{_TEST_DB_DIR}/overture.sqlite"
+os.environ["OVERTURE_MIN_CONFIDENCE"] = "0.3"
 os.environ["SECRET_KEY"] = "test-secret-key-not-for-production"
-# Tests drive runs directly; a live background thread would race them.
 os.environ["RUN_WORKER_ENABLED"] = "false"
-# Pin every setting the tests rely on, so a developer's own .env (another port, a real key, tuned
-# limits) can never change the results. Environment variables beat .env.
 for name, value in {
     "GOOGLE_PLACES_API_KEY": "",
     "SCOUT_CONTACT_EMAIL": "",
@@ -28,11 +26,13 @@ for name, value in {
     "RUN_MAX_TASKS": "2000",
     "RUN_TASK_CACHE_DAYS": "7",
     "ENRICHMENT_CONCURRENCY": "4",
+    "IMPORT_MAX_MB": "10",
+    "IMPORT_MAX_ROWS": "50000",
+    "IMPORT_BATCH_PAUSE_SECONDS": "0",
     "SHEETS_API_URL": "https://sheets.googleapis.com/v4",
     "GOOGLE_TOKEN_URL": "https://oauth2.googleapis.com/token",
 }.items():
     os.environ[name] = value
-# No timers left running after a test; the debounce is tested with its own scheduler.
 os.environ["SHEETS_AUTO_SYNC_DELAY_SECONDS"] = "-1"
 
 from datetime import UTC
@@ -40,10 +40,10 @@ from datetime import UTC
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.database import Base, SessionLocal, engine
+from app.core.dependencies import get_db
 from app.core.limiter import limiter
 from app.core.security import create_access_token, hash_password
-from app.database import Base, SessionLocal, engine
-from app.dependencies import get_db
 from app.features.users.models import User, UserRole
 from app.main import app
 
@@ -65,8 +65,6 @@ def _prepare_schema():
 
 @pytest.fixture()
 def db_session():
-    # Each test runs inside an outer transaction; the session's commits only release
-    # a SAVEPOINT, so rolling back the outer transaction undoes everything.
     connection = engine.connect()
     outer_transaction = connection.begin()
     session = SessionLocal(bind=connection, join_transaction_mode="create_savepoint")
@@ -124,7 +122,6 @@ def auth_headers():
 
 @pytest.fixture()
 def seeded_profile(db_session):
-    """Pakistan's cities and the solar profile, loaded the way `python -m scripts.seed` does."""
     from app.features.profiles.models import Profile
     from scripts.seed import seed_geographies, seed_solar_profile
 
@@ -135,7 +132,6 @@ def seeded_profile(db_session):
 
 @pytest.fixture()
 def make_business(db_session, seeded_profile):
-    """Build a stored lead by pushing a raw record through the real ingest path."""
     import itertools
     from datetime import datetime
 
@@ -169,7 +165,6 @@ def make_business(db_session, seeded_profile):
             external_id=f"{source}/{n}",
             name=name,
             address=address,
-            # ~1 km apart, so two test businesses are never mistaken for the same place.
             latitude=place.latitude + n * 0.01,
             longitude=place.longitude + n * 0.01,
             phones=list(phones),

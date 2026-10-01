@@ -3,8 +3,6 @@ import sys
 
 import pytest
 
-# Each snippet is the *first* thing a fresh interpreter imports -- the way a script or a
-# shell would start -- which is exactly where unresolved cross-feature relationships bite.
 ENTRY_POINTS = [
     "import app.features.geographies.models",
     "import app.features.profiles.service",

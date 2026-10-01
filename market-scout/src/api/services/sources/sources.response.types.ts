@@ -12,6 +12,10 @@ export type TSource = {
     key_hint: string | null;
     key_source: "saved" | "environment" | null;
     key_needs_reentry: boolean;
+    /** Searches a copy of its data kept on the server, which has to be downloaded first. */
+    requires_dataset: boolean;
+    dataset_ready: boolean;
+    dataset_note: string | null;
     is_available: boolean;
 };
 

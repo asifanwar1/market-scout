@@ -1,9 +1,3 @@
-"""The live Google Sheet: a one-way mirror of the leads (app -> sheet).
-
-Every sync rewrites the whole "Leads" worksheet from the database, so the sheet is always exactly
-what the app would export and running it twice changes nothing. Edits made in the sheet are
-overwritten; sales work in the app.
-"""
 import logging
 import re
 import threading
@@ -13,18 +7,21 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.core.config import settings
 from app.core.crypto import decrypt_secret, encrypt_secret
+from app.core.database import SessionLocal, WriteSessionLocal
 from app.core.exceptions import BadRequestException, ConflictException
 from app.core.sheets.client import SheetsClient
 from app.core.sheets.errors import SheetsError
 from app.core.sheets.service_account import ServiceAccount, parse_service_account
-from app.database import SessionLocal, WriteSessionLocal
 from app.features.businesses.schemas import BusinessSort
 from app.features.businesses.service import BusinessFilters
 from app.features.exports import service as exports_service
 from app.features.sheets.models import AppSetting
 from app.features.sheets.schemas import SheetsUpdate
+
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/"
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +32,10 @@ _CREDENTIALS_KEY = "sheets_credentials"
 _ID_IN_URL = re.compile(r"/spreadsheets/d/([A-Za-z0-9_-]{15,})")
 _BARE_ID = re.compile(r"^[A-Za-z0-9_-]{15,}$")
 
-# Held while a sync runs, so two never write the sheet at once. Manual "Sync now" refuses when it
-# is taken; the automatic path waits its turn.
 _sync_lock = threading.Lock()
 _timer_lock = threading.Lock()
 _pending_timer: threading.Timer | None = None
 
-
-# ---- stored settings ---------------------------------------------------------------------------
 
 def _read(db: Session, key: str) -> dict:
     row = db.get(AppSetting, key)
@@ -54,7 +47,7 @@ def _write(db: Session, key: str, value: dict) -> None:
     if row is None:
         db.add(AppSetting(key=key, value=value))
     else:
-        row.value = value  # a new dict, so the JSON column notices the change
+        row.value = value
     db.commit()
 
 
@@ -63,7 +56,6 @@ def _now_iso() -> str:
 
 
 def _resolve_credentials(db: Session) -> tuple[ServiceAccount | None, str | None, bool]:
-    """(the account, where it came from, saved-key-unreadable)."""
     saved = _read(db, _CREDENTIALS_KEY).get("encrypted")
     needs_reentry = False
     if saved:
@@ -105,7 +97,7 @@ def get_settings(db: Session) -> dict:
         "credentials_needs_reentry": needs_reentry,
         "service_account_email": account.client_email if account else None,
         "spreadsheet_id": spreadsheet_id,
-        "spreadsheet_url": f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}" if spreadsheet_id else None,
+        "spreadsheet_url": f"{SPREADSHEET_URL}{spreadsheet_id}" if spreadsheet_id else None,
         "spreadsheet_title": config.get("spreadsheet_title"),
         "worksheet_title": WORKSHEET_TITLE,
         "auto_sync": bool(config.get("auto_sync", True)),
@@ -123,7 +115,6 @@ def update_settings(db: Session, update_in: SheetsUpdate) -> dict:
     data = update_in.model_dump(exclude_unset=True)
     config = _read(db, _CONFIG_KEY)
 
-    # Validate everything before storing anything, so a rejected change leaves nothing half-saved.
     new_credentials = (data.get("credentials_json") or "").strip()
     if new_credentials:
         try:
@@ -141,19 +132,15 @@ def update_settings(db: Session, update_in: SheetsUpdate) -> dict:
 
     if "spreadsheet" in data:
         if new_spreadsheet_id != config.get("spreadsheet_id"):
-            # A different sheet: what we knew about the old one no longer applies.
             config = {"auto_sync": config.get("auto_sync", True), "spreadsheet_id": new_spreadsheet_id}
     if data.get("auto_sync") is not None:
         config["auto_sync"] = data["auto_sync"]
     if new_credentials or data.get("clear_credentials"):
-        # New account, new permissions: forget the last outcome and the "unchanged" shortcut.
         for stale in ("last_sync_ok", "last_error", "content_hash", "spreadsheet_title"):
             config.pop(stale, None)
     _write(db, _CONFIG_KEY, config)
     return get_settings(db)
 
-
-# ---- talking to Google --------------------------------------------------------------------------------
 
 def _build_client(account: ServiceAccount) -> SheetsClient:
     return SheetsClient(account, api_base=settings.SHEETS_API_URL, token_url=settings.GOOGLE_TOKEN_URL)
@@ -183,11 +170,7 @@ def test_connection(db: Session) -> dict:
     return {"ok": True, "message": f'Connected. Found the spreadsheet "{title}".'}
 
 
-# ---- syncing ---------------------------------------------------------------------------------------------
-
 def _sync_locked(db: Session, force: bool) -> None:
-    """Rewrite the worksheet and record what happened. The sync lock must be held. Never raises:
-    the outcome, good or bad, is stored for the settings screen."""
     config = _read(db, _CONFIG_KEY)
     account, _, _ = _resolve_credentials(db)
     spreadsheet_id = config.get("spreadsheet_id")
@@ -199,10 +182,8 @@ def _sync_locked(db: Session, force: bool) -> None:
         rows = list(exports_service.iter_lead_rows(db, BusinessFilters(), sort=BusinessSort.SCORE))
         fingerprint = exports_service.rows_fingerprint(exports_service.LEAD_HEADERS, rows)
         if not force and config.get("last_sync_ok") and config.get("content_hash") == fingerprint:
-            return  # nothing changed since the last successful sync
+            return
 
-        # The rows are plain values now; end this read transaction before the slow Google calls so
-        # nothing is held open (or left with a stale snapshot) while we wait on the network.
         db.rollback()
         with _build_client(account) as client:
             title = client.spreadsheet_title(spreadsheet_id)
@@ -218,8 +199,6 @@ def _sync_locked(db: Session, force: bool) -> None:
         db.rollback()
         config.update(last_sync_ok=False, last_error="Unexpected error (see the server log).")
     finally:
-        # A short write transaction of its own. Merge over whatever was saved meanwhile (someone may
-        # have changed the link mid-sync).
         with _session(write=True) as write_db:
             latest = _read(write_db, _CONFIG_KEY)
             if latest.get("spreadsheet_id") == spreadsheet_id:
@@ -248,8 +227,6 @@ def _manual_sync() -> None:
 
 
 def start_sync(db: Session) -> dict:
-    """"Sync now": starts the sync in the background and returns straight away; the settings
-    screen watches ``is_syncing`` and then shows the outcome."""
     _require_configured(db)
     if not _sync_lock.acquire(blocking=False):
         raise ConflictException("A sync is already running.")
@@ -262,14 +239,11 @@ def start_sync(db: Session) -> dict:
 
 
 def sync_now(db: Session, force: bool = True) -> dict:
-    """Blocking sync on the caller's session (tests; the app itself goes through the background paths)."""
     _require_configured(db)
     with _sync_lock:
         _sync_locked(db, force=force)
     return get_settings(db)
 
-
-# ---- keeping it live ----------------------------------------------------------------------------------------
 
 def _schedule(delay: float, target: Callable[[], None]) -> threading.Timer:
     timer = threading.Timer(delay, target)
@@ -293,14 +267,11 @@ def _auto_sync() -> None:
 def _fire() -> None:
     global _pending_timer
     with _timer_lock:
-        _pending_timer = None  # edits from here on schedule a fresh sync
+        _pending_timer = None
     _auto_sync()
 
 
 def notify_changed() -> None:
-    """Leads changed (a run finished, a lead was edited, someone was put on do-not-contact).
-    Refreshes the sheet shortly afterwards if it is connected; a burst of changes shares one
-    refresh. Cheap and never raises, so callers can fire it after any change."""
     global _pending_timer
     delay = settings.SHEETS_AUTO_SYNC_DELAY_SECONDS
     if delay < 0:

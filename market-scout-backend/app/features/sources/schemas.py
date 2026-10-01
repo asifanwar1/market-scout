@@ -2,6 +2,10 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+API_KEY_MIN_LENGTH = 8
+API_KEY_MAX_LENGTH = 512
+
+
 
 class SourceResponse(BaseModel):
     key: str
@@ -14,9 +18,10 @@ class SourceResponse(BaseModel):
     has_key: bool
     key_hint: Optional[str] = None
     key_source: Optional[Literal["saved", "environment"]] = None
-    # A saved key that can no longer be decrypted (the server secret changed).
     key_needs_reentry: bool = False
-    # Enabled and, if it needs a key, has one: what a run can actually use.
+    requires_dataset: bool = False
+    dataset_ready: bool = True
+    dataset_note: Optional[str] = None
     is_available: bool
 
 
@@ -27,7 +32,7 @@ class SourceListResponse(BaseModel):
 
 class SourceUpdate(BaseModel):
     is_enabled: Optional[bool] = None
-    api_key: Optional[str] = Field(default=None, min_length=8, max_length=512)
+    api_key: Optional[str] = Field(default=None, min_length=API_KEY_MIN_LENGTH, max_length=API_KEY_MAX_LENGTH)
     clear_api_key: bool = False
 
 

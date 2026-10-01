@@ -1,9 +1,11 @@
+from http import HTTPStatus
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db
+from app.core.constants import FIRST_PAGE, LIMIT_MAX, LIMIT_MAX_LARGE, LIMIT_MIN
+from app.core.dependencies import get_db
 from app.features.auth.dependencies import get_current_admin_user
 from app.features.runs import service
 from app.features.runs.models import RunStatus, TaskStatus
@@ -21,8 +23,8 @@ router = APIRouter()
 
 @router.get("/", response_model=RunListResponse)
 def list_runs(
-    page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
+    page: int = Query(FIRST_PAGE, ge=FIRST_PAGE),
+    limit: int = Query(service.DEFAULT_LIMIT, ge=LIMIT_MIN, le=LIMIT_MAX),
     status: Optional[RunStatus] = Query(None),
     db: Session = Depends(get_db),
     _=Depends(get_current_admin_user),
@@ -30,7 +32,7 @@ def list_runs(
     return service.get_runs(db, page=page, limit=limit, status=status)
 
 
-@router.post("/", response_model=RunResponse, status_code=201)
+@router.post("/", response_model=RunResponse, status_code=HTTPStatus.CREATED)
 def create_run(run_in: RunCreate, db: Session = Depends(get_db), current_admin: User = Depends(get_current_admin_user)):
     return service.create_run(db, run_in, created_by_id=current_admin.id)
 
@@ -48,8 +50,8 @@ def get_run(run_id: int, db: Session = Depends(get_db), _=Depends(get_current_ad
 @router.get("/{run_id}/tasks", response_model=RunTaskListResponse)
 def list_run_tasks(
     run_id: int,
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    page: int = Query(FIRST_PAGE, ge=FIRST_PAGE),
+    limit: int = Query(service.DEFAULT_TASKS_LIMIT, ge=LIMIT_MIN, le=LIMIT_MAX_LARGE),
     status: Optional[TaskStatus] = Query(None),
     db: Session = Depends(get_db),
     _=Depends(get_current_admin_user),

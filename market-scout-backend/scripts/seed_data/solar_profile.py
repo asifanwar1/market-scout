@@ -1,9 +1,3 @@
-"""The first industry profile: solar panels, inverters and batteries in Pakistan.
-
-Search terms have two forms. ``text`` is what a text-search source (Google Places) is
-asked; ``osm_filter`` is the tag/name query for OpenStreetMap. Terms without an
-``osm_filter`` (all the Roman-Urdu ones) are simply skipped by OpenStreetMap.
-"""
 from app.features.profiles.models import TermLanguage
 from app.features.profiles.schemas import ProfileCreate
 
@@ -57,7 +51,6 @@ _SEGMENTS = [
 ]
 
 _SEARCH_TERMS = [
-    # Dealers
     {
         "text": "solar panel dealer",
         "segment_slug": "dealer",
@@ -73,14 +66,12 @@ _SEARCH_TERMS = [
         "osm_filter": {"clauses": [["name~inverter|battery|ups"]]},
     },
     {"text": "solar panel ka dealer", "segment_slug": "dealer", "language": TermLanguage.UR_ROMAN},
-    # Importers
     {
         "text": "solar panel importer",
         "segment_slug": "importer",
         "osm_filter": {"clauses": [["name~solar|inverter|energy", "name~import|trading|international"]]},
     },
     {"text": "solar equipment importer", "segment_slug": "importer"},
-    # Wholesalers
     {
         "text": "solar wholesaler",
         "segment_slug": "wholesaler",
@@ -88,7 +79,6 @@ _SEARCH_TERMS = [
     },
     {"text": "solar panel wholesale market", "segment_slug": "wholesaler"},
     {"text": "solar panel thok dealer", "segment_slug": "wholesaler", "language": TermLanguage.UR_ROMAN},
-    # Retailers
     {
         "text": "solar shop",
         "segment_slug": "retailer",
@@ -100,7 +90,6 @@ _SEARCH_TERMS = [
         "osm_filter": {"clauses": [["name~battery|ups|inverter"]]},
     },
     {"text": "solar ki dukan", "segment_slug": "retailer", "language": TermLanguage.UR_ROMAN},
-    # Installers
     {
         "text": "solar installer",
         "segment_slug": "installer",
@@ -108,7 +97,6 @@ _SEARCH_TERMS = [
     },
     {"text": "solar system installation company", "segment_slug": "installer"},
     {"text": "solar system lagwana", "segment_slug": "installer", "language": TermLanguage.UR_ROMAN},
-    # Contractors
     {
         "text": "electrical contractor",
         "segment_slug": "contractor",
@@ -119,7 +107,6 @@ _SEARCH_TERMS = [
 
 
 def build_solar_profile() -> ProfileCreate:
-    # Built through the same schema the API uses, so bad seed data fails validation here.
     return ProfileCreate(
         name=PROFILE_NAME,
         description=(

@@ -46,8 +46,6 @@ def city_row(body, name):
     return next(city for city in body["cities"] if city["city"] == name)
 
 
-# ---- access ----------------------------------------------------------------------------------------
-
 def test_insights_need_a_login(client):
     for path in ("overview", "coverage?profile_id=1", "gaps?profile_id=1", "timeline", "sources", "movers"):
         assert client.get(f"{BASE}/{path}").status_code == 401, path
@@ -58,20 +56,18 @@ def test_sales_can_view_insights(client, leads, headers, seeded_profile):
         assert client.get(f"{BASE}/{path}", headers=headers).status_code == 200, path
 
 
-# ---- overview -------------------------------------------------------------------------------------------
-
 def test_overview_counts(client, leads, headers, admin_user, auth_headers):
     client.patch(f"/api/v1/businesses/{leads['noor'].id}", headers=auth_headers(admin_user), json={"lead_status": "contacted"})
 
     body = client.get(f"{BASE}/overview", headers=headers).json()
 
     assert body["total"] == 5
-    assert body["with_phone"] == 4          # quetta has only an email
-    assert body["whatsapp_likely"] == 3     # three mobile numbers; zahid's is a landline
+    assert body["with_phone"] == 4
+    assert body["whatsapp_likely"] == 3
     assert body["with_email"] == 2
     assert body["with_website"] == 1
-    assert body["new_last_7_days"] == 2     # noor (3 days ago) and karachi (1 day ago)
-    assert body["new_last_30_days"] == 3    # + bilal
+    assert body["new_last_7_days"] == 2
+    assert body["new_last_30_days"] == 3
     assert body["by_status"] == {"new": 4, "contacted": 1}
 
 
@@ -94,8 +90,6 @@ def test_overview_of_an_empty_database(client, headers):
     body = client.get(f"{BASE}/overview", headers=headers).json()
     assert body["total"] == 0 and body["by_status"] == {}
 
-
-# ---- coverage ------------------------------------------------------------------------------------------------
 
 def test_coverage_is_a_city_by_segment_matrix(client, leads, headers, seeded_profile):
     body = client.get(f"{BASE}/coverage?profile_id={seeded_profile.id}", headers=headers).json()
@@ -132,8 +126,6 @@ def test_coverage_needs_a_real_profile(client, headers):
     assert client.get(f"{BASE}/coverage?profile_id=99999", headers=headers).status_code == 404
 
 
-# ---- gaps --------------------------------------------------------------------------------------------------------
-
 def add_search(db_session, run, city_name, status=TaskStatus.DONE.value, finished=None):
     city = db_session.query(Geography).filter_by(name=city_name).one()
     db_session.add(RunTask(
@@ -148,12 +140,12 @@ def test_gaps_separate_places_never_searched_from_places_searched_with_little_fo
 ):
     run = make_run()
     add_search(db_session, run, "Karachi")
-    add_search(db_session, run, "Quetta", status=TaskStatus.FAILED.value)   # a failed search doesn't count as looking
+    add_search(db_session, run, "Quetta", status=TaskStatus.FAILED.value)
 
     body = client.get(f"{BASE}/gaps?profile_id={seeded_profile.id}&threshold=2", headers=headers).json()
     by_city = {gap["city"]: gap for gap in body["data"]}
 
-    assert "Lahore" not in by_city                                   # 3 leads, above the threshold
+    assert "Lahore" not in by_city
     assert by_city["Karachi"]["reason"] == "few_found" and by_city["Karachi"]["searches_done"] == 1
     assert by_city["Karachi"]["last_searched_at"] is not None
     assert by_city["Quetta"]["reason"] == "never_searched"
@@ -169,7 +161,7 @@ def test_gaps_list_unsearched_cities_first_then_the_emptiest(client, leads, head
     assert reasons == sorted(reasons, key=lambda r: r != "never_searched")
     unsearched = [g for g in body["data"] if g["reason"] == "never_searched"]
     assert [g["total"] for g in unsearched] == sorted(g["total"] for g in unsearched)
-    assert body["data"][-1]["city"] == "Multan"                      # searched, found nothing: after the unsearched ones
+    assert body["data"][-1]["city"] == "Multan"
 
 
 def test_gaps_name_the_segments_with_nothing(client, leads, headers, seeded_profile):
@@ -183,19 +175,17 @@ def test_gaps_threshold_is_validated(client, headers, seeded_profile):
     assert client.get(f"{BASE}/gaps?profile_id={seeded_profile.id}&threshold=0", headers=headers).status_code == 422
 
 
-# ---- timeline ----------------------------------------------------------------------------------------------------
-
 def test_timeline_by_week_counts_new_leads_and_keeps_a_running_total(client, leads, headers):
     body = client.get(f"{BASE}/timeline?days=90&bucket=week", headers=headers).json()
     points = body["data"]
 
     assert body["bucket"] == "week"
-    assert sum(p["new"] for p in points) == 4                        # quetta (200 days ago) is before the chart starts
-    assert points[0]["total"] >= 1                                   # ...but is already in the running total
+    assert sum(p["new"] for p in points) == 4
+    assert points[0]["total"] >= 1
     assert points[-1]["total"] == 5
     assert [p["total"] for p in points] == sorted(p["total"] for p in points)
     periods = [p["period"] for p in points]
-    assert periods == sorted(set(periods))                           # no gaps or repeats, oldest first
+    assert periods == sorted(set(periods))
 
 
 def test_timeline_fills_quiet_periods_with_zero(client, leads, headers):
@@ -217,8 +207,6 @@ def test_timeline_input_is_validated(client, headers):
     assert client.get(f"{BASE}/timeline?bucket=year", headers=headers).status_code == 422
 
 
-# ---- sources -----------------------------------------------------------------------------------------------------------
-
 @pytest.fixture()
 def two_sources(make_business, db_session):
     osm_only = make_business("Osm Only Traders", phones=["0300 1111111"], source="osm", website="https://osmonly.pk")
@@ -237,7 +225,7 @@ def by_key(body):
 def test_source_quality_compares_what_each_source_delivered(client, two_sources, headers):
     rows = by_key(client.get(f"{BASE}/sources", headers=headers).json())
 
-    assert rows["osm"]["found"] == 2 and rows["osm"]["exclusive"] == 1        # "Shared Solar" was found by both
+    assert rows["osm"]["found"] == 2 and rows["osm"]["exclusive"] == 1
     assert rows["google_places"]["found"] == 2 and rows["google_places"]["exclusive"] == 1
     assert rows["osm"]["with_phone"] == 2 and rows["osm"]["with_whatsapp"] == 2
     assert rows["google_places"]["with_phone"] == 1 and rows["google_places"]["with_email"] == 1
@@ -258,7 +246,7 @@ def test_paid_source_shows_what_it_cost_and_the_free_one_shows_none(client, two_
     rows = by_key(client.get(f"{BASE}/sources", headers=headers).json())
 
     assert rows["google_places"]["requests"] == 100
-    assert rows["google_places"]["estimated_cost_usd"] == 3.5                 # 100 x $0.035
+    assert rows["google_places"]["estimated_cost_usd"] == 3.5
     assert rows["google_places"]["cost_per_lead_usd"] == round(3.5 / 2, 3)
     assert rows["osm"]["estimated_cost_usd"] is None and rows["osm"]["cost_per_lead_usd"] is None
 
@@ -273,8 +261,6 @@ def test_source_quality_leaves_out_do_not_contact(client, two_sources, headers, 
     rows = by_key(client.get(f"{BASE}/sources", headers=headers).json())
     assert rows["google_places"]["found"] == 1 and rows["google_places"]["with_email"] == 0
 
-
-# ---- movers -----------------------------------------------------------------------------------------------------------------
 
 def snapshot(db_session, business, run, days, reviews, rating=4.0):
     db_session.add(BusinessSnapshot(business_id=business.id, run_id=run.id, seen_at=days_ago(days), rating=rating, review_count=reviews))
@@ -298,10 +284,10 @@ def test_movers_are_ranked_by_review_growth(client, leads, headers, db_session, 
 def test_movers_ignore_businesses_that_did_not_grow_or_were_seen_once(client, leads, headers, db_session, make_run):
     first, second = make_run(), make_run()
     snapshot(db_session, leads["noor"], first, 20, 30)
-    snapshot(db_session, leads["noor"], second, 2, 30)         # unchanged
+    snapshot(db_session, leads["noor"], second, 2, 30)
     snapshot(db_session, leads["bilal"], first, 20, 50)
-    snapshot(db_session, leads["bilal"], second, 2, 40)        # fewer reviews now
-    snapshot(db_session, leads["zahid"], second, 2, 99)        # only seen once
+    snapshot(db_session, leads["bilal"], second, 2, 40)
+    snapshot(db_session, leads["zahid"], second, 2, 99)
 
     assert client.get(f"{BASE}/movers", headers=headers).json()["data"] == []
 
@@ -320,7 +306,7 @@ def test_movers_compare_with_the_previous_search_however_long_ago_it_was(client,
 def test_movers_only_include_businesses_seen_recently(client, leads, headers, db_session, make_run):
     first, second = make_run(), make_run()
     snapshot(db_session, leads["noor"], first, 120, 5)
-    snapshot(db_session, leads["noor"], second, 90, 50)        # grew, but the last look was long ago
+    snapshot(db_session, leads["noor"], second, 90, 50)
 
     assert client.get(f"{BASE}/movers?days=30", headers=headers).json()["data"] == []
     assert len(client.get(f"{BASE}/movers?days=120", headers=headers).json()["data"]) == 1
@@ -348,8 +334,6 @@ def test_movers_respect_the_limit_and_do_not_contact(client, leads, headers, db_
     assert "Zahid Battery House" not in names and len(names) == 2
 
 
-# ---- recording snapshots during a run ---------------------------------------------------------------------------------------
-
 @pytest.fixture()
 def ingest(db_session, seeded_profile):
     from app.core.scouting.types import RawBusiness
@@ -374,7 +358,7 @@ def ingest(db_session, seeded_profile):
 def test_each_run_records_one_snapshot_per_business(ingest, db_session, make_run):
     first, second = make_run(), make_run()
     business = ingest(first, reviews=10)
-    ingest(first, reviews=11)                      # seen twice in the same run: still one row
+    ingest(first, reviews=11)
     ingest(second, reviews=25)
 
     rows = db_session.query(BusinessSnapshot).filter_by(business_id=business.id).order_by(BusinessSnapshot.id).all()

@@ -1,14 +1,10 @@
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import relationship
 
-from app.database import Base
+from app.core.database import Base
 
 
 class BusinessSnapshot(Base):
-    """What a business looked like (rating, review count) when a run last saw it. One row per
-    business per run, so growth in reviews, a rough sign of a business getting busier, can be
-    read over time."""
-
     __tablename__ = "business_snapshots"
     __table_args__ = (UniqueConstraint("business_id", "run_id", name="uq_business_snapshots_business_run"),)
 

@@ -55,7 +55,7 @@ export type TTimeline = {
 export type TSourceQuality = {
     key: string;
     name: string;
-    kind: "discovery" | "enrichment";
+    kind: "discovery" | "enrichment" | "import";
     is_paid: boolean;
     found: number;
     exclusive: number | null;

@@ -28,6 +28,7 @@ import {
     useGetProfile,
     useGetProfiles,
 } from "@/hooks/api/catalog.queries";
+import { useGetSourcesQuality } from "@/hooks/api/insights.queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { showToast } from "@/lib/toast";
 import { getBlobErrorMessage, saveBlob, todayStamp } from "@/utils/download.utils";
@@ -53,6 +54,8 @@ const urlState = {
     email: parseAsBoolean,
     website: parseAsBoolean,
     minScore: parseAsInteger,
+    // Where the lead was found: a search source, or an imported list ("import:<name>")
+    source: parseAsString,
     sort: parseAsStringLiteral(SORTS),
     dir: parseAsStringLiteral(DIRECTIONS),
     page: parseAsInteger.withDefault(1),
@@ -90,6 +93,7 @@ export const useLeadsPage = () => {
     const { data: profile } = useGetProfile(activeProfileId);
     const { data: geographyTree } = useGetGeographyTree();
     const { data: assignees = [] } = useGetAssignees();
+    const { data: sourceQuality } = useGetSourcesQuality(activeProfileId, activeProfileId !== undefined);
 
     const sort: TBusinessSort = state.sort ?? "score";
     const direction: TSortDirection = state.dir ?? defaultDirection(sort);
@@ -109,6 +113,7 @@ export const useLeadsPage = () => {
         has_email: state.email ? true : undefined,
         has_website: state.website ? true : undefined,
         min_score: state.minScore ?? undefined,
+        source: state.source ?? undefined,
         search: state.q || undefined,
     };
     const params: TGetBusinessesParams = {
@@ -163,6 +168,7 @@ export const useLeadsPage = () => {
                 state.email,
                 state.website,
                 state.minScore,
+                state.source,
             ].filter((value) => value !== null && value !== "" && value !== false).length,
         [state],
     );
@@ -180,6 +186,7 @@ export const useLeadsPage = () => {
             email: null,
             website: null,
             minScore: null,
+            source: null,
         });
     };
 
@@ -222,6 +229,7 @@ export const useLeadsPage = () => {
         profile,
         geographyTree: geographyTree ?? [],
         assignees,
+        sources: sourceQuality?.data ?? [],
         leads: data?.data ?? [],
         total: data?.count ?? 0,
         isLeadsLoading: isLeadsLoading || isProfilesLoading,

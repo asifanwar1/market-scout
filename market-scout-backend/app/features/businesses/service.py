@@ -1,4 +1,3 @@
-"""Reading and editing the stored businesses (the leads the sales team works)."""
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -6,6 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, defer, joinedload, selectinload
 
+from app.core.constants import EMAIL_SEPARATOR, FIRST_PAGE
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.features.businesses.models import (
     Business,
@@ -22,6 +22,13 @@ from app.features.geographies.models import Geography
 from app.features.profiles.models import ProfileSegment
 from app.features.users.models import User
 
+MIN_PHONE_SEARCH_DIGITS = 4
+EXPORT_BATCH_SIZE = 500
+
+
+DEFAULT_LIMIT = 25
+
+
 _PHONE_KINDS = (ContactKind.PHONE.value, ContactKind.WHATSAPP.value)
 
 
@@ -29,7 +36,6 @@ _PHONE_KINDS = (ContactKind.PHONE.value, ContactKind.WHATSAPP.value)
 class BusinessFilters:
     profile_id: int | None = None
     segment: str | None = None
-    # A city, province or the country: provinces/countries mean every city inside.
     geography_id: int | None = None
     has_phone: bool | None = None
     whatsapp_likely: bool | None = None
@@ -43,11 +49,7 @@ class BusinessFilters:
     search: str | None = None
 
 
-# ---- querying -----------------------------------------------------------------------------
-
 def visible_businesses(db: Session, filters: BusinessFilters):
-    """Businesses that may be shown to sales and match the filters. Also the base for exports
-    and the live sheet, so those can never include someone on the do-not-contact list."""
     query = db.query(Business).filter(compliance_service.not_blocked_filter())
     return _apply_filters(db, query, filters)
 
@@ -109,16 +111,15 @@ def _search_condition(term: str):
     like = f"%{term}%"
     conditions = [Business.name.ilike(like), Business.address.ilike(like)]
 
-    # Phones are stored as +92300...; let people type them the way they're written locally.
     digits = re.sub(r"\D", "", term)
-    if len(digits) >= 4:
+    if len(digits) >= MIN_PHONE_SEARCH_DIGITS:
         local = digits.removeprefix("0092").removeprefix("92").lstrip("0") or digits
         conditions.append(
             Business.contact_points.any(
                 and_(ContactPoint.kind.in_(_PHONE_KINDS), ContactPoint.value.like(f"%{local}%"))
             )
         )
-    if "@" in term:
+    if EMAIL_SEPARATOR in term:
         conditions.append(
             Business.contact_points.any(
                 and_(ContactPoint.kind == ContactKind.EMAIL.value, ContactPoint.value.ilike(like))
@@ -148,13 +149,11 @@ def _order_clauses(sort: BusinessSort | None, direction: SortDirection | None, p
     return [column.desc() if descending else column.asc(), Business.id.desc() if descending else Business.id.asc()]
 
 
-# ---- list ------------------------------------------------------------------------------------
-
 def get_businesses(
     db: Session,
     filters: BusinessFilters,
-    page: int = 1,
-    limit: int = 25,
+    page: int = FIRST_PAGE,
+    limit: int = DEFAULT_LIMIT,
     sort: BusinessSort | None = None,
     direction: SortDirection | None = None,
 ) -> dict:
@@ -181,11 +180,8 @@ def iter_business_batches(
     filters: BusinessFilters,
     sort: BusinessSort | None = None,
     direction: SortDirection | None = None,
-    batch_size: int = 500,
+    batch_size: int = EXPORT_BATCH_SIZE,
 ) -> Iterator[tuple[list[Business], "_Lookups"]]:
-    """Every visible business matching the filters, in list order, a batch at a time (for exports
-    and the live sheet, which read all of them). Ids are read once up front so the order holds
-    even if leads are added while this is running."""
     ids = [
         row[0]
         for row in visible_businesses(db, filters)
@@ -206,16 +202,12 @@ def iter_business_batches(
             )
             .all()
         }
-        # A lead deleted between the two reads simply drops out.
         businesses = [by_id[business_id] for business_id in chunk if business_id in by_id]
         yield businesses, _load_lookups(db, businesses)
 
 
 @dataclass
 class _Lookups:
-    """Names and source keys for one page of businesses, fetched in a few batched queries
-    rather than per row."""
-
     users: dict[int, str]
     segments: dict[int, tuple[str, str]]
     sources: dict[int, list[str]]
@@ -287,18 +279,13 @@ def _to_list_item(business: Business, profile_id: int | None, lookups: _Lookups)
     }
 
 
-# ---- detail / edit --------------------------------------------------------------------------------
-
 def get_business_by_id(db: Session, business_id: int) -> Business:
-    """A business the sales team may see. Someone on the do-not-contact list is treated as
-    not found so they can't be reached by id either."""
     business = (
         db.query(Business)
         .filter(Business.id == business_id, compliance_service.not_blocked_filter())
         .options(
             selectinload(Business.contact_points),
             selectinload(Business.classifications),
-            # The raw payloads are large and only useful for reprocessing.
             selectinload(Business.source_records).options(defer(SourceRecord.raw_payload)),
             joinedload(Business.geography).joinedload(Geography.parent),
         )
@@ -385,7 +372,6 @@ def bulk_update_businesses(db: Session, update_in: BulkBusinessUpdate) -> int:
     if "assigned_to_id" in data:
         values["assigned_to_id"] = data["assigned_to_id"]
 
-    # Ids that are unknown or blocked are ignored; the count tells the caller how many changed.
     updated = (
         db.query(Business)
         .filter(Business.id.in_(set(update_in.business_ids)), compliance_service.not_blocked_filter())

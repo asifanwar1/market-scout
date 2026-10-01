@@ -1,9 +1,11 @@
+from http import HTTPStatus
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db
+from app.core.constants import FIRST_PAGE, LIMIT_MAX, LIMIT_MIN
+from app.core.dependencies import get_db
 from app.features.auth.dependencies import get_current_user
 from app.features.businesses import service
 from app.features.businesses.dependencies import business_filters
@@ -29,8 +31,8 @@ router = APIRouter()
 @router.get("/", response_model=BusinessListResponse)
 def list_businesses(
     filters: BusinessFilters = Depends(business_filters),
-    page: int = Query(1, ge=1),
-    limit: int = Query(25, ge=1, le=100),
+    page: int = Query(FIRST_PAGE, ge=FIRST_PAGE),
+    limit: int = Query(service.DEFAULT_LIMIT, ge=LIMIT_MIN, le=LIMIT_MAX),
     sort: Optional[BusinessSort] = Query(None),
     direction: Optional[SortDirection] = Query(None),
     db: Session = Depends(get_db),
@@ -39,7 +41,6 @@ def list_businesses(
     return service.get_businesses(db, filters, page=page, limit=limit, sort=sort, direction=direction)
 
 
-# Static paths before "/{business_id}" so they aren't parsed as an id.
 @router.get("/assignees", response_model=list[AssignedUser])
 def list_assignees(db: Session = Depends(get_db), _=Depends(get_current_user)):
     return service.get_assignable_users(db)
@@ -66,7 +67,7 @@ def update_business(
     return business
 
 
-@router.post("/{business_id}/do-not-contact", response_model=DoNotContactResponse, status_code=201)
+@router.post("/{business_id}/do-not-contact", response_model=DoNotContactResponse, status_code=HTTPStatus.CREATED)
 def mark_do_not_contact(
     business_id: int,
     data: BusinessDoNotContactCreate,

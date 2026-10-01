@@ -1,5 +1,7 @@
 from fastapi import HTTPException, status
 
+from app.core.constants import AUTH_CHALLENGE_HEADER, AUTH_SCHEME_BEARER
+
 
 class NotFoundException(HTTPException):
     def __init__(self, detail: str = "Resource not found"):
@@ -11,7 +13,7 @@ class UnauthorizedException(HTTPException):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=detail,
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={AUTH_CHALLENGE_HEADER: AUTH_SCHEME_BEARER},
         )
 
 

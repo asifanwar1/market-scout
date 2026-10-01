@@ -3,13 +3,15 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
+PHONE_MAX_LENGTH = 40
+REASON_MAX_LENGTH = 500
+
+
 
 class DoNotContactCreate(BaseModel):
-    """Block a phone number or an email address (exactly one)."""
-
-    phone: Optional[str] = Field(default=None, max_length=40)
+    phone: Optional[str] = Field(default=None, max_length=PHONE_MAX_LENGTH)
     email: Optional[EmailStr] = None
-    reason: Optional[str] = Field(default=None, max_length=500)
+    reason: Optional[str] = Field(default=None, max_length=REASON_MAX_LENGTH)
 
     @model_validator(mode="after")
     def exactly_one_identifier(self) -> "DoNotContactCreate":
@@ -19,16 +21,14 @@ class DoNotContactCreate(BaseModel):
 
 
 class BusinessDoNotContactCreate(BaseModel):
-    reason: Optional[str] = Field(default=None, max_length=500)
+    reason: Optional[str] = Field(default=None, max_length=REASON_MAX_LENGTH)
 
 
 class DoNotContactResponse(BaseModel):
     id: int
     kind: Literal["business", "phone", "email"]
-    # The business name, phone number or email address.
     value: str
     business_id: Optional[int] = None
-    # For a blocked business: its phone numbers and emails that are blocked with it.
     identifiers: list[str] = Field(default_factory=list)
     reason: Optional[str] = None
     added_by_id: Optional[int] = None

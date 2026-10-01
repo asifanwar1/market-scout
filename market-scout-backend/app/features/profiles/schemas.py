@@ -4,13 +4,27 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.constants import CONDITION_OPERATOR_PATTERN, DESCRIPTION_MAX_LENGTH, NAME_MAX_LENGTH, NAME_MIN_LENGTH, SCORE_MAX, SCORE_MIN
 from app.core.utils import slugify
 from app.features.profiles.models import TermLanguage
 
+CLAUSES_MAX = 10
+CONDITIONS_PER_CLAUSE_MAX = 5
+NAME_PATTERNS_MAX = 50
+PATTERN_MAX_LENGTH = 100
+TERM_TEXT_MAX_LENGTH = 150
+SEGMENTS_MAX = 30
+SEARCH_TERMS_MAX = 300
+DEFAULT_WEIGHT_PHONE = 30
+DEFAULT_WEIGHT_WHATSAPP = 20
+DEFAULT_WEIGHT_WEBSITE = 10
+DEFAULT_WEIGHT_EMAIL = 10
+DEFAULT_WEIGHT_REVIEWS = 10
+DEFAULT_WEIGHT_NAME_MATCH = 20
+
+
 _SLUG_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 _OSM_CONDITION = re.compile(r"^([A-Za-z0-9_:]+)(=|~)(.+)$")
-# Values end up inside an Overpass QL query, so only plain characters are allowed:
-# no quotes, backslashes, brackets or semicolons that could break out of the string.
 _OSM_SAFE_VALUE = re.compile(r"^[\w\s|.\-&()+*?]+$")
 
 
@@ -21,7 +35,7 @@ def _validate_osm_condition(condition: str) -> str:
     _, operator, value = match.groups()
     if not _OSM_SAFE_VALUE.match(value):
         raise ValueError(f"'{condition}' contains characters that are not allowed")
-    if operator == "~":
+    if operator == CONDITION_OPERATOR_PATTERN:
         _validate_regex(value)
     return condition.strip()
 
@@ -35,25 +49,19 @@ def _validate_regex(pattern: str) -> str:
 
 
 class OsmFilter(BaseModel):
-    """Alternative clauses (OR); each clause is a list of conditions that must all match (AND).
-
-    A condition is ``key=value`` (exact) or ``key~regex`` (case-insensitive), e.g.
-    ``[["shop=electrical", "name~solar|inverter"], ["name~solar"]]``.
-    """
-
-    clauses: list[list[str]] = Field(min_length=1, max_length=10)
+    clauses: list[list[str]] = Field(min_length=1, max_length=CLAUSES_MAX)
 
     @field_validator("clauses")
     @classmethod
     def validate_clauses(cls, clauses: list[list[str]]) -> list[list[str]]:
         for clause in clauses:
-            if not 1 <= len(clause) <= 5:
-                raise ValueError("each clause needs between 1 and 5 conditions")
+            if not 1 <= len(clause) <= CONDITIONS_PER_CLAUSE_MAX:
+                raise ValueError(f"each clause needs between 1 and {CONDITIONS_PER_CLAUSE_MAX} conditions")
         return [[_validate_osm_condition(condition) for condition in clause] for clause in clauses]
 
 
 class MatchRules(BaseModel):
-    name_patterns: list[str] = Field(default_factory=list, max_length=50)
+    name_patterns: list[str] = Field(default_factory=list, max_length=NAME_PATTERNS_MAX)
 
     @field_validator("name_patterns")
     @classmethod
@@ -61,29 +69,25 @@ class MatchRules(BaseModel):
         cleaned: list[str] = []
         for pattern in patterns:
             pattern = pattern.strip()
-            if not pattern or len(pattern) > 100:
-                raise ValueError("name patterns must be 1-100 characters")
+            if not pattern or len(pattern) > PATTERN_MAX_LENGTH:
+                raise ValueError(f"name patterns must be 1-{PATTERN_MAX_LENGTH} characters")
             cleaned.append(_validate_regex(pattern))
         return cleaned
 
 
 class ScoringConfig(BaseModel):
-    """Points added to a lead's score (0-100 overall) when a signal is present."""
+    has_phone: int = Field(default=DEFAULT_WEIGHT_PHONE, ge=SCORE_MIN, le=SCORE_MAX)
+    has_whatsapp_likely: int = Field(default=DEFAULT_WEIGHT_WHATSAPP, ge=SCORE_MIN, le=SCORE_MAX)
+    has_website: int = Field(default=DEFAULT_WEIGHT_WEBSITE, ge=SCORE_MIN, le=SCORE_MAX)
+    has_email: int = Field(default=DEFAULT_WEIGHT_EMAIL, ge=SCORE_MIN, le=SCORE_MAX)
+    has_reviews: int = Field(default=DEFAULT_WEIGHT_REVIEWS, ge=SCORE_MIN, le=SCORE_MAX)
+    name_matches_segment: int = Field(default=DEFAULT_WEIGHT_NAME_MATCH, ge=SCORE_MIN, le=SCORE_MAX)
 
-    has_phone: int = Field(default=30, ge=0, le=100)
-    has_whatsapp_likely: int = Field(default=20, ge=0, le=100)
-    has_website: int = Field(default=10, ge=0, le=100)
-    has_email: int = Field(default=10, ge=0, le=100)
-    has_reviews: int = Field(default=10, ge=0, le=100)
-    name_matches_segment: int = Field(default=20, ge=0, le=100)
-
-
-# ---- segments ---------------------------------------------------------------
 
 class SegmentCreate(BaseModel):
-    name: str = Field(min_length=2, max_length=100)
-    slug: Optional[str] = Field(default=None, pattern=_SLUG_PATTERN, max_length=100)
-    description: Optional[str] = Field(default=None, max_length=500)
+    name: str = Field(min_length=NAME_MIN_LENGTH, max_length=NAME_MAX_LENGTH)
+    slug: Optional[str] = Field(default=None, pattern=_SLUG_PATTERN, max_length=NAME_MAX_LENGTH)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
     match_rules: MatchRules = Field(default_factory=MatchRules)
     sort_order: int = Field(default=0, ge=0)
 
@@ -109,10 +113,8 @@ class SegmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ---- search terms -----------------------------------------------------------
-
 class SearchTermCreate(BaseModel):
-    text: str = Field(min_length=2, max_length=150)
+    text: str = Field(min_length=NAME_MIN_LENGTH, max_length=TERM_TEXT_MAX_LENGTH)
     segment_slug: str = Field(pattern=_SLUG_PATTERN)
     osm_filter: Optional[OsmFilter] = None
     language: TermLanguage = TermLanguage.EN
@@ -140,8 +142,6 @@ class SearchTermResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ---- profiles ---------------------------------------------------------------
-
 def _check_segment_slugs_unique(segments: list[SegmentCreate]) -> None:
     slugs = [segment.slug for segment in segments]
     duplicates = sorted({slug for slug in slugs if slugs.count(slug) > 1})
@@ -166,15 +166,15 @@ def _check_search_terms(search_terms: list[SearchTermCreate], segments: list[Seg
 
 
 class ProfileBase(BaseModel):
-    name: str = Field(min_length=2, max_length=100)
-    description: Optional[str] = Field(default=None, max_length=500)
+    name: str = Field(min_length=NAME_MIN_LENGTH, max_length=NAME_MAX_LENGTH)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
     is_active: bool = True
     scoring_config: ScoringConfig = Field(default_factory=ScoringConfig)
 
 
 class ProfileCreate(ProfileBase):
-    segments: list[SegmentCreate] = Field(default_factory=list, max_length=30)
-    search_terms: list[SearchTermCreate] = Field(default_factory=list, max_length=300)
+    segments: list[SegmentCreate] = Field(default_factory=list, max_length=SEGMENTS_MAX)
+    search_terms: list[SearchTermCreate] = Field(default_factory=list, max_length=SEARCH_TERMS_MAX)
 
     @model_validator(mode="after")
     def validate_nested(self) -> "ProfileCreate":
@@ -184,16 +184,12 @@ class ProfileCreate(ProfileBase):
 
 
 class ProfileUpdate(BaseModel):
-    """PUT semantics for the nested lists: when ``segments`` / ``search_terms`` is sent it is
-    the complete desired list -- items with an ``id`` are updated, items without one are
-    created, and existing items that are missing are deleted. Omit a list to leave it alone."""
-
-    name: Optional[str] = Field(default=None, min_length=2, max_length=100)
-    description: Optional[str] = Field(default=None, max_length=500)
+    name: Optional[str] = Field(default=None, min_length=NAME_MIN_LENGTH, max_length=NAME_MAX_LENGTH)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
     is_active: Optional[bool] = None
     scoring_config: Optional[ScoringConfig] = None
-    segments: Optional[list[SegmentUpsert]] = Field(default=None, max_length=30)
-    search_terms: Optional[list[SearchTermUpsert]] = Field(default=None, max_length=300)
+    segments: Optional[list[SegmentUpsert]] = Field(default=None, max_length=SEGMENTS_MAX)
+    search_terms: Optional[list[SearchTermUpsert]] = Field(default=None, max_length=SEARCH_TERMS_MAX)
 
     @model_validator(mode="after")
     def validate_nested(self) -> "ProfileUpdate":

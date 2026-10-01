@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from app.config import settings
+from app.core.config import settings
 from app.core.scouting.enrichment.website import EnrichmentError, WebsiteContacts
 from app.core.scouting.normalize import PhoneInfo
 from app.core.scouting.sources.base import SourceAuthError, SourceError
@@ -19,7 +19,6 @@ from app.features.sources.schemas import SourceUpdate
 from scripts.seed import seed_geographies, seed_solar_profile
 from scripts.seed_data.pakistan import REGIONS
 
-# ---- fixtures / fakes -----------------------------------------------------------
 
 @pytest.fixture()
 def world(db_session):
@@ -44,8 +43,6 @@ def raw(n: int, source: str = "osm", **overrides) -> RawBusiness:
 
 
 class FakeSource:
-    """Stands in for OSM / Places. ``businesses`` is a list, or a function of the query."""
-
     def __init__(self, key="osm", businesses=(), error=None, requests_per_search=1, on_search=None):
         self.key = key
         self.businesses = businesses
@@ -117,8 +114,6 @@ def dealer_terms(profile) -> int:
     return sum(1 for t in profile.search_terms if t.segment_slug == "dealer")
 
 
-# ---- permissions ----------------------------------------------------------------------
-
 def test_runs_are_admin_only(client, world, db_session, sales_user, auth_headers):
     headers = auth_headers(sales_user)
     lahore = city(db_session, "lahore")
@@ -130,8 +125,6 @@ def test_runs_are_admin_only(client, world, db_session, sales_user, auth_headers
     assert client.post("/api/v1/runs/1/cancel", headers=headers).status_code == 403
     assert client.get("/api/v1/runs/").status_code == 401
 
-
-# ---- estimate / create ----------------------------------------------------------------------
 
 def test_estimate_counts_searches_per_source_and_prices_the_paid_one(client, admin_user, auth_headers, world, db_session):
     enable_places(db_session)
@@ -145,11 +138,10 @@ def test_estimate_counts_searches_per_source_and_prices_the_paid_one(client, adm
     assert response.status_code == 200, response.text
     body = response.json()
     by_source = {s["source_key"]: s for s in body["by_source"]}
-    # OSM can only search terms that carry an OSM filter; Places can search every term.
     assert by_source["osm"]["tasks"] == 2 * osm_dealer_terms(world)
     assert by_source["google_places"]["tasks"] == 2 * dealer_terms(world)
     assert by_source["osm"]["max_requests"] is None and by_source["osm"]["estimated_cost_usd"] is None
-    assert by_source["google_places"]["max_requests"] == 10          # capped below tasks x 3 pages
+    assert by_source["google_places"]["max_requests"] == 10
     assert body["paid_requests_max"] == 10
     assert body["estimated_cost_usd"] == round(10 * settings.PLACES_COST_PER_REQUEST_USD, 2)
     assert body["tasks_total"] == body["tasks_to_run"] == by_source["osm"]["tasks"] + by_source["google_places"]["tasks"]
@@ -192,8 +184,8 @@ def test_a_province_expands_to_its_cities(client, admin_user, auth_headers, worl
     "change, status",
     [
         ({"source_keys": ["nope"]}, 400),
-        ({"source_keys": ["website_enrichment"]}, 400),          # not a discovery source
-        ({"source_keys": ["google_places"]}, 400),               # switched off, no key
+        ({"source_keys": ["website_enrichment"]}, 400),
+        ({"source_keys": ["google_places"]}, 400),
         ({"segment_slugs": ["nonexistent"]}, 400),
         ({"profile_id": 9999}, 404),
         ({"geography_ids": [9999]}, 404),
@@ -232,7 +224,6 @@ def test_create_run_rejects_inactive_profile_country_without_cities_and_oversize
 
 
 def test_source_without_matching_terms_is_refused(client, admin_user, auth_headers, world, db_session):
-    # Only Roman-Urdu terms remain, and OpenStreetMap can't search those.
     lahore = city(db_session, "lahore")
     body = payload(world, [lahore], segment_slugs=["dealer"])
     for term in world.search_terms:
@@ -243,12 +234,98 @@ def test_source_without_matching_terms_is_refused(client, admin_user, auth_heade
     assert response.status_code == 400 and "Nothing to search" in response.json()["detail"]
 
 
-# ---- executing --------------------------------------------------------------------------------
+@pytest.fixture()
+def overture_data(tmp_path, monkeypatch):
+    from app.core.scouting import overture_store
+
+    path = tmp_path / "overture.sqlite"
+    monkeypatch.setattr(settings, "OVERTURE_DB_PATH", str(path))
+
+    def place(identifier, name, category, latitude, longitude, **extra):
+        return {
+            "id": identifier, "name": name, "categories": [category], "confidence": 0.8,
+            "latitude": latitude, "longitude": longitude, "phones": ["+923001234567"], **extra,
+        }
+
+    overture_store.write_store(
+        path,
+        [
+            place("o1", "Noor Solar Traders", "solar_installation", 31.52, 74.36, phones=["+923001112222"], websites=["https://noor.pk"]),
+            place("o2", "Inverter Corner", "electronics_store", 31.55, 74.33, phones=["+923003334444"]),
+            place("o3", "Karachi Solar House", "solar_installation", 24.86, 67.01, phones=["+923005556666"]),
+        ],
+        release="2026-09-23.1",
+    )
+    return path
+
+
+def test_a_run_cannot_use_overture_until_its_data_is_downloaded(client, admin_user, auth_headers, world, db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "OVERTURE_DB_PATH", str(tmp_path / "missing.sqlite"))
+    lahore = city(db_session, "lahore")
+
+    response = client.post(
+        "/api/v1/runs/estimate", headers=auth_headers(admin_user), json=payload(world, [lahore], source_keys=["overture"])
+    )
+
+    assert response.status_code == 400 and "downloaded" in response.json()["detail"]
+
+
+def test_overture_searches_only_the_terms_it_can_translate_and_costs_nothing(
+    client, admin_user, auth_headers, world, db_session, overture_data
+):
+    lahore = city(db_session, "lahore")
+
+    estimate = client.post(
+        "/api/v1/runs/estimate", headers=auth_headers(admin_user), json=payload(world, [lahore], source_keys=["overture"])
+    ).json()
+
+    (entry,) = estimate["by_source"]
+    assert entry["source_key"] == "overture" and entry["is_paid"] is False and entry["estimated_cost_usd"] is None
+    assert entry["tasks"] == osm_dealer_terms(world)
+    assert estimate["estimated_cost_usd"] == 0 and estimate["estimated_minutes"] == 0
+
+
+def test_a_run_over_overture_stores_what_is_in_the_city_with_its_contacts(
+    client, admin_user, auth_headers, world, db_session, overture_data
+):
+    lahore = city(db_session, "lahore")
+    run = make_run(client, admin_user, auth_headers, payload(world, [lahore], source_keys=["overture"]))
+
+    finished = service.execute_run(db_session, run["id"])
+
+    assert finished.status == "completed" and finished.error is None and finished.tasks_failed == 0
+    names = {business.name for business in db_session.query(Business).all()}
+    assert names == {"Noor Solar Traders", "Inverter Corner"}
+    stats = finished.stats["overture"]
+    assert stats["new"] == 2 and stats["requests"] == 0 and stats["with_phone"] >= 2 and stats["with_website"] >= 1
+    assert finished.paid_requests_used == 0
+
+    noor = db_session.query(Business).filter_by(name="Noor Solar Traders").one()
+    assert noor.website == "https://noor.pk" and noor.geography_id == lahore.id
+    assert any(contact.value == "+923001112222" and contact.source_key == "overture" for contact in noor.contact_points)
+
+
+def test_overture_and_openstreetmap_find_one_lead_not_two(client, admin_user, auth_headers, world, db_session, overture_data):
+    from app.core.scouting.sources.overture import OvertureSource
+
+    lahore = city(db_session, "lahore")
+    run = make_run(client, admin_user, auth_headers, payload(world, [lahore], source_keys=["osm", "overture"]))
+    same_shop = raw(1, name="Noor Solar Traders", latitude=31.52, longitude=74.36, phones=["+923001112222"], emails=["hi@noor.pk"])
+
+    finished = service.execute_run(
+        db_session, run["id"],
+        source_builder=builder(osm=FakeSource("osm", [same_shop]), overture=OvertureSource(str(overture_data), min_confidence=0.3)),
+    )
+
+    assert finished.status == "completed"
+    noor = db_session.query(Business).filter_by(name="Noor Solar Traders").all()
+    assert len(noor) == 1
+    assert {record.source_key for record in noor[0].source_records} == {"osm", "overture"}
+
 
 def test_execute_run_stores_deduplicated_businesses_and_reports_stats(client, admin_user, auth_headers, world, db_session):
     lahore = city(db_session, "lahore")
     run = make_run(client, admin_user, auth_headers, payload(world, [lahore]))
-    # Every search returns the same two shops; the second search of each pair must merge, not duplicate.
     source = FakeSource("osm", [raw(1, emails=["a@shop1.pk"], website="shop1.pk"), raw(2)])
 
     finished = service.execute_run(db_session, run["id"], source_builder=builder(osm=source))
@@ -284,7 +361,7 @@ def test_repeating_a_run_skips_recent_searches_unless_refreshed(client, admin_us
     repeat = make_run(client, admin_user, auth_headers, payload(world, [lahore]))
     assert repeat["tasks_skipped"] == repeat["tasks_total"] > 0
     finished = service.execute_run(db_session, repeat["id"], source_builder=builder(osm=source))
-    assert len(source.calls) == calls_after_first                       # nothing was searched again
+    assert len(source.calls) == calls_after_first
     assert finished.status == "completed" and finished.progress_percent == 100
     assert {t.error for t in db_session.query(RunTask).filter_by(run_id=finished.id)} == {"Searched recently; skipped"}
 
@@ -296,13 +373,13 @@ def test_repeating_a_run_skips_recent_searches_unless_refreshed(client, admin_us
     assert refreshed["tasks_skipped"] == 0
     done = service.execute_run(db_session, refreshed["id"], source_builder=builder(osm=source))
     assert len(source.calls) > calls_after_first
-    assert db_session.query(Business).count() == 1                     # re-finding it created no duplicate
+    assert db_session.query(Business).count() == 1
     assert done.stats["osm"]["new"] == 0
 
 
 def test_estimate_wording_for_exactly_one_recent_search(client, admin_user, auth_headers, world, db_session):
     lahore = city(db_session, "lahore")
-    body = payload(world, [lahore], segment_slugs=["contractor"])      # one OpenStreetMap search
+    body = payload(world, [lahore], segment_slugs=["contractor"])
     run = make_run(client, admin_user, auth_headers, body)
     service.execute_run(db_session, run["id"], source_builder=builder(osm=FakeSource("osm", [raw(1)])))
 
@@ -326,13 +403,12 @@ def test_failed_searches_are_isolated_and_retried_next_time(client, admin_user, 
     source = FakeSource("osm", flaky)
     finished = service.execute_run(db_session, run["id"], source_builder=builder(osm=source))
 
-    assert finished.status == "completed"                                # partial success is still a completed run
+    assert finished.status == "completed"
     assert (finished.tasks_done, finished.tasks_failed) == (osm_dealer_terms(world) - 1, 1)
     failed = db_session.query(RunTask).filter_by(run_id=finished.id, status="failed").one()
     assert "timed out" in failed.error
     assert finished.stats["osm"]["tasks_failed"] == 1
 
-    # A failed search is not cached: the next run tries it again.
     rerun = make_run(client, admin_user, auth_headers, payload(world, [lahore]))
     assert rerun["tasks_skipped"] == osm_dealer_terms(world) - 1
 
@@ -361,7 +437,7 @@ def test_unexpected_errors_fail_one_task_not_the_run(client, admin_user, auth_he
 
     assert finished.status == "completed" and finished.tasks_failed == 1
     failed = db_session.query(RunTask).filter_by(run_id=finished.id, status="failed").one()
-    assert "Unexpected error" in failed.error and "boom" not in failed.error      # no internals leaked to the UI
+    assert "Unexpected error" in failed.error and "boom" not in failed.error
     assert db_session.query(Business).count() == 1
 
 
@@ -390,7 +466,7 @@ def test_rejected_key_stops_asking_that_source_but_other_sources_continue(client
 
     finished = service.execute_run(db_session, run["id"], source_builder=builder(osm=osm, google_places=places))
 
-    assert len(places.calls) == 1                                        # only the first search hit the bad key
+    assert len(places.calls) == 1
     assert len(osm.calls) == osm_dealer_terms(world)
     assert finished.status == "completed"
     assert "API key not valid" in finished.error and "Google Places" in finished.error
@@ -410,7 +486,6 @@ def test_request_cap_stops_paid_searches_and_counts_billable_requests(client, ad
 
     finished = service.execute_run(db_session, run["id"], source_builder=builder(google_places=places))
 
-    # search 1 uses 3 of the 4 allowed requests, search 2 is cut to the 1 that's left, the rest never run.
     assert finished.paid_requests_used == 4 and finished.estimated_cost_usd == 2.0
     assert len(places.calls) == 2
     statuses = [t.status for t in db_session.query(RunTask).filter_by(run_id=finished.id).order_by(RunTask.id)]
@@ -442,15 +517,11 @@ def test_both_sources_merge_into_one_lead(client, admin_user, auth_headers, worl
     assert db_session.query(Business).count() == 1
     business = db_session.query(Business).one()
     assert business.website == "https://alnoor.pk" and business.review_count == 30
-    # Quality per source is what lets the admin decide whether the paid one is worth it.
     assert finished.stats["osm"]["with_website"] == 0
     assert finished.stats["google_places"]["with_website"] == dealer_terms(world)
-    # OpenStreetMap ran first and created the lead; every Places result was that same business.
     assert finished.stats["osm"]["new"] == 1
     assert (finished.stats["google_places"]["new"], finished.stats["google_places"]["merged"]) == (0, dealer_terms(world))
 
-
-# ---- cancel / resume / recovery ------------------------------------------------------------------
 
 def test_cancelling_a_queued_run(client, admin_user, auth_headers, world, db_session):
     headers = auth_headers(admin_user)
@@ -461,7 +532,7 @@ def test_cancelling_a_queued_run(client, admin_user, auth_headers, world, db_ses
     assert response.status_code == 200 and response.json()["status"] == "cancelled"
     assert response.json()["tasks_skipped"] == run["tasks_total"]
     source = FakeSource("osm", [raw(1)])
-    service.execute_run(db_session, run["id"], source_builder=builder(osm=source))     # the worker still dequeues it
+    service.execute_run(db_session, run["id"], source_builder=builder(osm=source))
     assert source.calls == []
     assert client.post(f"/api/v1/runs/{run['id']}/cancel", headers=headers).status_code == 409
 
@@ -481,7 +552,7 @@ def test_cancelling_a_running_run_stops_between_searches(client, admin_user, aut
     assert finished.status == "cancelled" and len(source.calls) == 1
     assert finished.tasks_done == 1 and finished.tasks_skipped == run["tasks_total"] - 1
     assert db_session.query(RunTask).filter_by(run_id=finished.id, status="pending").count() == 0
-    assert db_session.query(Business).count() == 1                     # what was found before cancelling is kept
+    assert db_session.query(Business).count() == 1
 
 
 def test_interrupted_run_is_recovered_and_can_be_resumed(client, admin_user, auth_headers, world, db_session):
@@ -490,7 +561,6 @@ def test_interrupted_run_is_recovered_and_can_be_resumed(client, admin_user, aut
     interrupted = make_run(client, admin_user, auth_headers, payload(world, [lahore]))
     waiting = make_run(client, admin_user, auth_headers, payload(world, [lahore], source_keys=["osm"], segment_slugs=["contractor"]))
 
-    # Simulate a crash: the first run was mid-flight with one search finished and one in progress.
     tasks = db_session.query(RunTask).filter_by(run_id=interrupted["id"]).order_by(RunTask.id).all()
     tasks[0].status, tasks[1].status = "done", "running"
     db_session.query(Run).filter(Run.id == interrupted["id"]).update({"status": "running", "tasks_done": 1})
@@ -509,15 +579,15 @@ def test_interrupted_run_is_recovered_and_can_be_resumed(client, admin_user, aut
     source = FakeSource("osm", [raw(1)])
     finished = service.execute_run(db_session, interrupted["id"], source_builder=builder(osm=source))
     assert finished.status == "completed"
-    assert len(source.calls) == osm_dealer_terms(world) - 1            # the finished search was not repeated
+    assert len(source.calls) == osm_dealer_terms(world) - 1
 
 
 def test_only_interrupted_runs_with_work_left_can_be_resumed(client, admin_user, auth_headers, world, db_session):
     headers = auth_headers(admin_user)
     run = make_run(client, admin_user, auth_headers, payload(world, [city(db_session, "lahore")]))
-    assert client.post(f"/api/v1/runs/{run['id']}/resume", headers=headers).status_code == 409     # still queued
+    assert client.post(f"/api/v1/runs/{run['id']}/resume", headers=headers).status_code == 409
     service.execute_run(db_session, run["id"], source_builder=builder(osm=FakeSource("osm", [raw(1)])))
-    assert client.post(f"/api/v1/runs/{run['id']}/resume", headers=headers).status_code == 409     # completed
+    assert client.post(f"/api/v1/runs/{run['id']}/resume", headers=headers).status_code == 409
     assert client.post("/api/v1/runs/9999/resume", headers=headers).status_code == 404
 
 
@@ -535,7 +605,7 @@ def test_execute_run_ignores_runs_that_are_not_queued(client, admin_user, auth_h
 def test_history_survives_deleting_the_profile_and_locations(client, admin_user, auth_headers, world, db_session):
     headers = auth_headers(admin_user)
     lahore = city(db_session, "lahore")
-    profile_id, profile_name, lahore_id = world.id, world.name, lahore.id      # the objects are gone after the deletes
+    profile_id, profile_name, lahore_id = world.id, world.name, lahore.id
     run = make_run(client, admin_user, auth_headers, payload(world, [lahore]))
     service.execute_run(db_session, run["id"], source_builder=builder(osm=FakeSource("osm", [raw(1)])))
 
@@ -546,7 +616,6 @@ def test_history_survives_deleting_the_profile_and_locations(client, admin_user,
     assert body["profile_id"] is None and body["profile_name"] == profile_name and body["status"] == "completed"
     tasks = client.get(f"/api/v1/runs/{run['id']}/tasks", headers=headers).json()["data"]
     assert {t["geography_name"] for t in tasks} == {"Lahore"} and all(t["geography_id"] is None for t in tasks)
-    # The business found stays too, just no longer tied to a deleted city.
     assert db_session.query(Business).one().geography_id is None
 
 
@@ -567,8 +636,6 @@ def test_run_fails_cleanly_if_a_source_lost_its_key_after_queueing(client, admin
     assert finished.status == "failed" and "API key" in finished.error
 
 
-# ---- listing --------------------------------------------------------------------------------------
-
 def test_list_runs_and_tasks_with_filters_and_pagination(client, admin_user, auth_headers, world, db_session):
     headers = auth_headers(admin_user)
     lahore = city(db_session, "lahore")
@@ -577,7 +644,7 @@ def test_list_runs_and_tasks_with_filters_and_pagination(client, admin_user, aut
     client.post(f"/api/v1/runs/{first['id']}/cancel", headers=headers)
 
     listing = client.get("/api/v1/runs/", headers=headers).json()
-    assert listing["count"] == 2 and [r["id"] for r in listing["data"]] == [second["id"], first["id"]]      # newest first
+    assert listing["count"] == 2 and [r["id"] for r in listing["data"]] == [second["id"], first["id"]]
     assert [r["id"] for r in client.get("/api/v1/runs/?status=cancelled", headers=headers).json()["data"]] == [first["id"]]
     assert client.get("/api/v1/runs/?limit=1&page=2", headers=headers).json()["data"][0]["id"] == first["id"]
 
@@ -586,8 +653,6 @@ def test_list_runs_and_tasks_with_filters_and_pagination(client, admin_user, aut
     assert client.get("/api/v1/runs/9999", headers=headers).status_code == 404
     assert client.get("/api/v1/runs/9999/tasks", headers=headers).status_code == 404
 
-
-# ---- website enrichment -----------------------------------------------------------------------------
 
 def enrichment_run(client, admin_user, auth_headers, world, db_session, **overrides):
     return make_run(client, admin_user, auth_headers, payload(
@@ -624,7 +689,6 @@ def test_enrichment_adds_contacts_from_websites_and_is_not_repeated(client, admi
     assert ("phone", "+924235771769", "osm") in kinds
     assert noor.enriched_at is not None
 
-    # A later run finds the same shops but doesn't fetch their sites again.
     again = make_run(client, admin_user, auth_headers, payload(
         world, [city(db_session, "lahore")], segment_slugs=["contractor"], enrich_websites=True, refresh=True,
     ))
@@ -644,7 +708,6 @@ def test_enrichment_failures_are_counted_but_do_not_fail_the_run(client, admin_u
 
     assert finished.status == "completed" and finished.enrich_done == 2
     assert finished.stats["website_enrichment"]["failed"] == 2
-    # Stamped anyway so dead sites aren't hammered on every run.
     assert all(b.enriched_at is not None for b in db_session.query(Business))
 
 
@@ -669,7 +732,6 @@ def test_cancelling_during_enrichment_stops_processing(client, admin_user, auth_
     real_as_completed = service.as_completed
 
     def cancel_after_first_result(futures):
-        # The generator body runs on the main thread, so the shared session is touched safely.
         for index, future in enumerate(real_as_completed(futures)):
             if index == 1:
                 db_session.query(Run).filter(Run.id == run["id"]).update({"status": "cancelling"})
@@ -683,8 +745,6 @@ def test_cancelling_during_enrichment_stops_processing(client, admin_user, auth_
     assert finished.status == "cancelled"
     assert finished.enrich_total == 8 and finished.enrich_done == 1
 
-
-# ---- worker -----------------------------------------------------------------------------------------
 
 def test_worker_runs_queued_ids_in_order_on_its_own_thread_and_survives_errors():
     done = threading.Event()
@@ -707,7 +767,7 @@ def test_worker_runs_queued_ids_in_order_on_its_own_thread_and_survives_errors()
     finally:
         worker.stop()
 
-    assert seen == [1, 2, 3]                                   # a crash on 1 didn't stop 2 and 3
+    assert seen == [1, 2, 3]
     assert threads == {"run-worker"} and not worker.is_running
 
 

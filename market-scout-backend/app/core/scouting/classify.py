@@ -2,8 +2,8 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-# Business names are short; capping the length also bounds the cost of a
-# badly written (user-supplied) pattern.
+from app.core.constants import SCORE_MAX
+
 _MAX_NAME_LENGTH = 200
 _MIN_REVIEWS_FOR_BONUS = 3
 
@@ -30,13 +30,6 @@ class Classification:
 
 
 def classify(name: str, hint_slug: str | None, segments: Sequence[SegmentRule]) -> Classification:
-    """Pick a segment for a business.
-
-    The business's own name is stronger evidence than which search happened to find it
-    ("solar shop" also returns "XYZ Wholesale Traders"), so: a name match on the segment the
-    search was for wins; otherwise the first segment whose name pattern matches; otherwise
-    fall back to the search's segment.
-    """
     matched = [segment.slug for segment in segments if _name_matches(name, segment)]
     if hint_slug in matched:
         return Classification(hint_slug, True)
@@ -51,7 +44,6 @@ def _name_matches(name: str, segment: SegmentRule) -> bool:
 
 
 def score_lead(signals: LeadSignals, name_matched: bool, weights: Mapping[str, int]) -> int:
-    """Sum the weights of the signals present, capped at 100."""
     total = 0
     if signals.has_phone:
         total += weights.get("has_phone", 0)
@@ -65,4 +57,4 @@ def score_lead(signals: LeadSignals, name_matched: bool, weights: Mapping[str, i
         total += weights.get("has_reviews", 0)
     if name_matched:
         total += weights.get("name_matches_segment", 0)
-    return min(100, total)
+    return min(SCORE_MAX, total)

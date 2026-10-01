@@ -1,9 +1,13 @@
 from sqlalchemy.orm import Session
 
+from app.core.constants import FIRST_PAGE
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.core.utils import slugify
 from app.features.geographies.models import Geography, GeographyLevel
 from app.features.geographies.schemas import GeographyCreate, GeographyUpdate
+
+DEFAULT_LIMIT = 50
+
 
 _PARENT_LEVEL: dict[GeographyLevel, GeographyLevel | None] = {
     GeographyLevel.COUNTRY: None,
@@ -50,8 +54,8 @@ def _ensure_name_available(db: Session, name: str, parent_id: int | None, exclud
 
 def get_geographies(
     db: Session,
-    page: int = 1,
-    limit: int = 50,
+    page: int = FIRST_PAGE,
+    limit: int = DEFAULT_LIMIT,
     search: str | None = None,
     level: GeographyLevel | None = None,
     parent_id: int | None = None,
@@ -99,7 +103,6 @@ def get_geography_tree(db: Session) -> list[dict]:
 
 
 def get_city_ids(db: Session, geography_id: int) -> list[int]:
-    """The city itself, or every city inside a province / country."""
     geography = get_geography_by_id(db, geography_id)
     city_ids: list[int] = []
     frontier = [geography]
@@ -161,8 +164,6 @@ def update_geography(db: Session, geography_id: int, geography_in: GeographyUpda
         if None in area:
             raise BadRequestException("Cities need latitude, longitude and radius_km")
 
-    # The slug is deliberately not regenerated on rename: it is the stable identifier
-    # other data and seed scripts refer to.
     for field, value in update_data.items():
         setattr(geography, field, value)
     db.commit()

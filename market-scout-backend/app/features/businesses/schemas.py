@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.features.businesses.models import ContactKind, LeadStatus
 
+NOTES_MAX_LENGTH = 5000
+BULK_UPDATE_MAX = 500
+
+
 
 class BusinessSort(str, Enum):
     SCORE = "score"
@@ -37,7 +41,6 @@ class ContactPointResponse(BaseModel):
     value: str
     is_mobile: bool
     whatsapp_likely: bool
-    # Which source reported it, and when we first saw it.
     source_key: str
     created_at: Optional[datetime] = None
 
@@ -55,7 +58,6 @@ class BusinessListItem(BaseModel):
     address: Optional[str] = None
     city: Optional[str] = None
     province: Optional[str] = None
-    # The classification for the profile being viewed (or the best-scoring one).
     profile_id: Optional[int] = None
     segment_slug: Optional[str] = None
     segment_name: Optional[str] = None
@@ -104,18 +106,15 @@ class BusinessDetailResponse(BaseModel):
 
 
 class BusinessUpdate(BaseModel):
-    """Only the sales fields; send just what changed. ``assigned_to_id: null`` un-assigns."""
-
     lead_status: Optional[LeadStatus] = None
-    notes: Optional[str] = Field(default=None, max_length=5000)
+    notes: Optional[str] = Field(default=None, max_length=NOTES_MAX_LENGTH)
     assigned_to_id: Optional[int] = None
 
 
 class BulkBusinessUpdate(BaseModel):
-    business_ids: list[int] = Field(min_length=1, max_length=500)
+    business_ids: list[int] = Field(min_length=1, max_length=BULK_UPDATE_MAX)
     lead_status: Optional[LeadStatus] = None
     assigned_to_id: Optional[int] = None
-    # assigned_to_id can legitimately be null (un-assign), so "not sent" needs telling apart.
     model_config = {"extra": "forbid"}
 
     @model_validator(mode="after")

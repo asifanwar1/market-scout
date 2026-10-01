@@ -48,10 +48,10 @@ def test_extracts_contacts_from_homepage_and_contact_page():
 
     contacts = enricher.enrich("alnoorsolar.pk")
 
-    assert contacts.emails == ["info@alnoorsolar.pk", "sales@alnoorsolar.pk"]   # script content ignored
+    assert contacts.emails == ["info@alnoorsolar.pk", "sales@alnoorsolar.pk"]
     assert {p.e164 for p in contacts.phones} == {"+923004438424", "+924235771769"}
     assert contacts.whatsapp == ["+923014962026", "+923004438424"]
-    assert contacts.facebook == "https://facebook.com/alnoorsolar"               # not the share link
+    assert contacts.facebook == "https://facebook.com/alnoorsolar"
     assert contacts.instagram == "https://instagram.com/alnoor_solar"
     assert "https://alnoorsolar.pk/contact-us" in requested
 
@@ -86,8 +86,8 @@ def test_robots_txt_that_allows_the_site_is_fine():
         ("http://localhost/admin", ["127.0.0.1"]),
         ("http://internal.example.pk", ["10.0.0.5"]),
         ("http://metadata.example.pk", ["169.254.169.254"]),
-        ("http://mixed.example.pk", [PUBLIC_IP, "192.168.1.10"]),   # one private address is enough to refuse
-        ("http://192.168.0.1/router", []),                          # IP literal, no DNS involved
+        ("http://mixed.example.pk", [PUBLIC_IP, "192.168.1.10"]),
+        ("http://192.168.0.1/router", []),
         ("http://[::1]/", []),
     ],
 )
@@ -108,7 +108,7 @@ def test_redirect_to_a_private_address_is_refused():
     )
     with pytest.raises(UnsafeUrlError):
         enricher.enrich("https://shop.pk")
-    assert requested == ["https://shop.pk/robots.txt", "https://shop.pk"]   # never reached evil.internal
+    assert requested == ["https://shop.pk/robots.txt", "https://shop.pk"]
 
 
 def test_follows_safe_redirects_and_limits_them():
@@ -134,7 +134,7 @@ def test_non_html_error_status_and_bad_urls_raise_enrichment_errors():
     with pytest.raises(EnrichmentError):
         enricher.enrich("not a url")
     with pytest.raises(EnrichmentError):
-        enricher.enrich("https://www.facebook.com/somepage")   # social pages aren't websites
+        enricher.enrich("https://www.facebook.com/somepage")
 
 
 def test_oversized_pages_are_truncated_not_loaded_whole():

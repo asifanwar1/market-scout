@@ -48,7 +48,7 @@ const SourceQualityCard = ({ sources }: TSourceQualityCardProps) => {
                                         <TableCell className="font-medium whitespace-nowrap">
                                             {row.name}{" "}
                                             <Badge variant={row.is_paid ? "secondary" : "outline"} className="ml-1 font-normal">
-                                                {row.is_paid ? "Paid" : row.kind === "enrichment" ? "Adds contacts" : "Free"}
+                                                {row.is_paid ? "Paid" : row.kind === "enrichment" ? "Adds contacts" : row.kind === "import" ? "Imported list" : "Free"}
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="text-right tabular-nums">{formatCount(row.found)}</TableCell>

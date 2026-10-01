@@ -9,7 +9,6 @@ from app.core.scouting.normalize import (
     normalize_website,
 )
 
-# ---- phones (formats taken from the real OpenStreetMap results) -------------
 
 @pytest.mark.parametrize(
     "raw, expected",
@@ -43,8 +42,6 @@ def test_extract_phones_from_many_dedupes_across_fields():
     assert [p.e164 for p in phones] == ["+923004438424", "+923014962026"]
 
 
-# ---- emails ---------------------------------------------------------------
-
 def test_normalize_email_accepts_real_and_rejects_junk():
     assert normalize_email("  Sales@Solar-Shop.PK ") == "sales@solar-shop.pk"
     assert normalize_email("mailto:info@shop.pk?subject=Hi") == "info@shop.pk"
@@ -64,8 +61,6 @@ def test_extract_emails_from_page_text_skips_asset_names():
     text = "Contact: Info@Solar.pk or sales@solar.pk. Image: banner@2x.png  sentry@sentry.io"
     assert extract_emails(text) == ["info@solar.pk", "sales@solar.pk"]
 
-
-# ---- websites -------------------------------------------------------------
 
 def test_normalize_website_cleans_own_sites():
     site = normalize_website("WWW.Solar-Shop.pk/")
@@ -88,8 +83,6 @@ def test_normalize_website_ignores_unusable_or_shared_hosts(value):
     site = normalize_website(value)
     assert site.url is None and site.domain is None
 
-
-# ---- names ----------------------------------------------------------------
 
 def test_normalize_name_strips_case_punctuation_and_legal_suffixes():
     assert normalize_name("Al-Noor Solar (Pvt.) Ltd.") == "al noor solar"

@@ -1,5 +1,3 @@
-"""Guards that keep the app safe as it grows: who may call what, that bad input never becomes a
-500, that configuration mistakes fail at start-up, and that migrations match the models."""
 import os
 import re
 import subprocess
@@ -10,8 +8,8 @@ import pytest
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
-from app.config import Settings
-from app.dependencies import get_db
+from app.core.config import Settings
+from app.core.dependencies import get_db
 from app.features.auth.dependencies import get_current_admin_user, get_current_user
 from app.main import app
 
@@ -25,8 +23,6 @@ PUBLIC = {
     ("GET", "/health"),
 }
 
-# Anything not listed here or in PUBLIC is open to every signed-in user. Adding a route means
-# deciding which list it belongs to; this test fails until you do.
 ADMIN_ONLY = {
     ("GET", "/api/v1/users/"),
     ("POST", "/api/v1/users/"),
@@ -54,6 +50,11 @@ ADMIN_ONLY = {
     ("PUT", "/api/v1/sheets/"),
     ("POST", "/api/v1/sheets/test"),
     ("POST", "/api/v1/sheets/sync"),
+    ("POST", "/api/v1/imports/preview"),
+    ("POST", "/api/v1/imports/"),
+    ("GET", "/api/v1/imports/"),
+    ("GET", "/api/v1/imports/{import_id}"),
+    ("POST", "/api/v1/imports/{import_id}/cancel"),
 }
 
 
@@ -66,7 +67,6 @@ def _dependency_calls(dependant) -> set:
 
 
 def _routes() -> list[tuple[str, str, str]]:
-    """(method, path, access) for every route, as the app actually wires them."""
     found = []
     for route in app.routes:
         if not isinstance(route, APIRoute):
@@ -84,8 +84,6 @@ ROUTES = _routes()
 def _fill(path: str, value) -> str:
     return re.sub(r"\{[^}]+\}", str(value), path)
 
-
-# ---- who may call what ---------------------------------------------------------------------------
 
 def test_the_public_and_admin_routes_are_exactly_the_intended_ones():
     public = {(m, p) for m, p, a in ROUTES if a == "public"}
@@ -122,9 +120,7 @@ def test_a_deactivated_user_is_locked_out_immediately(client, make_user, auth_he
     assert client.get("/api/v1/businesses/", headers=auth_headers(user)).status_code == 401
 
 
-# ---- bad input is an answer, never a crash ---------------------------------------------------------------
-
-_DESTRUCTIVE = {("POST", "/api/v1/auth/logout-all")}  # would sign the test's own admin out
+_DESTRUCTIVE = {("POST", "/api/v1/auth/logout-all")}
 _BODIES = [None, {}, {"unexpected": [1, 2, 3]}, [], "text", {"name": None, "id": "abc", "email": 5}]
 
 
@@ -166,8 +162,6 @@ def test_security_headers_do_not_leak_the_server_stack_on_errors(client):
     assert response.json() == {"detail": "Unauthorized"}
 
 
-# ---- health ------------------------------------------------------------------------------------------------------
-
 def test_health_reports_ok_when_the_database_answers(client):
     assert client.get("/health").json() == {"status": "ok", "database": "ok"}
 
@@ -185,10 +179,8 @@ def test_health_reports_unavailable_when_the_database_is_down(client):
 
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable", "database": "down"}
-    assert "secret" not in response.text  # the reason goes to the log, not to whoever asked
+    assert "secret" not in response.text
 
-
-# ---- configuration fails early and clearly ----------------------------------------------------------------------------
 
 GOOD_KEY = "k" * 40
 
@@ -240,13 +232,11 @@ def test_env_example_values_match_the_defaults_in_the_code():
     example = dict(re.findall(r"^([A-Z][A-Z0-9_]*)=(.*)$", text, flags=re.MULTILINE))
     for name, field in Settings.model_fields.items():
         if field.is_required() or not example.get(name, "").strip():
-            continue  # blank in the example means "unset", which is the default
+            continue
         assert TypeAdapter(field.annotation).validate_python(example[name].strip()) == field.default, (
             f"{name}: .env.example says {example[name]!r} but the code defaults to {field.default!r}"
         )
 
-
-# ---- migrations ---------------------------------------------------------------------------------------------------------
 
 def _alembic(*args: str, db_url: str) -> subprocess.CompletedProcess:
     env = {**os.environ, "DATABASE_URL": db_url}
@@ -261,8 +251,6 @@ def test_migrations_build_exactly_the_schema_the_models_describe(tmp_path):
     upgrade = _alembic("upgrade", "head", db_url=url)
     assert upgrade.returncode == 0, upgrade.stderr[-800:]
 
-    # `alembic check` fails if the models differ from the migrated database, i.e. someone changed a
-    # model and forgot to write the migration.
     check = _alembic("check", db_url=url)
     assert check.returncode == 0, f"models and migrations disagree:\n{(check.stdout + check.stderr)[-1200:]}"
 
@@ -277,33 +265,33 @@ def test_migrations_can_be_undone_and_redone(tmp_path):
     assert up.returncode == 0, up.stderr[-800:]
 
 
-# ---- dependencies ---------------------------------------------------------------------------------------------------------
-
 def test_every_third_party_package_the_app_imports_is_in_requirements_txt():
-    """A package installed only on the developer's machine passes every test and then breaks the
-    first clean install. This reads the imports the way a fresh `pip install -r requirements.txt`
-    would see them."""
     import ast
     import importlib.metadata as metadata
 
-    wanted = {
-        re.split(r"[=<>\[ ]", line.strip(), maxsplit=1)[0].lower().replace("_", "-")
-        for line in (BACKEND_DIR / "requirements.txt").read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith(("#", "-"))
-    }
-    modules: set[str] = set()
-    for folder in ("app", "scripts"):
+    def listed(filename: str) -> set[str]:
+        return {
+            re.split(r"[=<>\[ ]", line.strip(), maxsplit=1)[0].lower().replace("_", "-")
+            for line in (BACKEND_DIR / filename).read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith(("#", "-"))
+        }
+
+    runtime, development = listed("requirements.txt"), listed("requirements-dev.txt")
+    distributions = metadata.packages_distributions()
+
+    def missing_from(folder: str, allowed: set[str]) -> list[str]:
+        modules: set[str] = set()
         for source in (BACKEND_DIR / folder).rglob("*.py"):
             for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
                 if isinstance(node, ast.Import):
                     modules.update(alias.name.split(".")[0] for alias in node.names)
                 elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                     modules.add(node.module.split(".")[0])
+        third_party = {m for m in modules if m not in sys.stdlib_module_names and m not in {"app", "scripts"}}
+        return sorted(
+            module for module in third_party
+            if not any(dist.lower().replace("_", "-") in allowed for dist in distributions.get(module, [module]))
+        )
 
-    third_party = {m for m in modules if m not in sys.stdlib_module_names and m not in {"app", "scripts"}}
-    distributions = metadata.packages_distributions()
-    missing = sorted(
-        module for module in third_party
-        if not any(dist.lower().replace("_", "-") in wanted for dist in distributions.get(module, [module]))
-    )
-    assert not missing, f"imported but not in requirements.txt: {missing}"
+    assert not missing_from("app", runtime), f"the app imports packages missing from requirements.txt: {missing_from('app', runtime)}"
+    assert not missing_from("scripts", runtime | development), "a script imports a package that is in neither requirements file"

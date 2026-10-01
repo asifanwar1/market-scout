@@ -15,3 +15,4 @@ python-multipart==0.0.27
 phonenumbers==9.0.40
 rapidfuzz==3.14.6
 beautifulsoup4==4.15.0
+openpyxl==3.1.5

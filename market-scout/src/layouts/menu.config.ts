@@ -1,6 +1,7 @@
 import {
     BarChart3,
     FileSpreadsheet,
+    FileUp,
     Layers,
     MapPin,
     Plug,
@@ -41,6 +42,7 @@ export const menuGroups: TMenuGroup[] = [
         roles: [USER_ROLE.ADMIN],
         items: [
             { label: "Runs", icon: Radar, path: APP_ROUTES.RUNS },
+            { label: "Imports", icon: FileUp, path: APP_ROUTES.IMPORTS },
             { label: "Profiles", icon: Layers, path: APP_ROUTES.PROFILES },
             { label: "Locations", icon: MapPin, path: APP_ROUTES.LOCATIONS },
             { label: "Sources", icon: Plug, path: APP_ROUTES.SOURCES },

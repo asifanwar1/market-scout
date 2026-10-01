@@ -3,11 +3,14 @@ from dotenv import load_dotenv
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+SECRET_KEY_MIN_LENGTH = 32
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
 load_dotenv()
 
 
 class Settings(BaseSettings):
-    # Core
     DATABASE_URL: str = "sqlite:///./market_scout.db"
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
@@ -16,41 +19,37 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173"
     LOG_LEVEL: str = "INFO"
 
-    # Encrypts API keys saved from the UI. Leave empty to derive one from SECRET_KEY
-    # (then rotating SECRET_KEY means re-entering saved keys).
     ENCRYPTION_KEY: str = ""
 
-    # Scouting
-    # Identifies us to the free public services we call (their usage policies ask for it).
     SCOUT_CONTACT_EMAIL: str = ""
     OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
     OVERPASS_MIN_INTERVAL_SECONDS: float = 5.0
-    # Optional fallback if no Places key is saved from the UI.
     GOOGLE_PLACES_API_KEY: str = ""
-    # An estimate for the run-cost preview only -- check Google's current pricing.
     PLACES_COST_PER_REQUEST_USD: float = 0.035
     RUN_WORKER_ENABLED: bool = True
     RUN_MAX_TASKS: int = 2000
-    # A search finished within this many days is skipped when a run repeats it.
     RUN_TASK_CACHE_DAYS: int = 7
     ENRICHMENT_CONCURRENCY: int = 4
 
-    # Google Sheets live mirror
-    # Optional fallback if no service-account key is saved from the UI: the key file's whole JSON.
+    OVERTURE_DB_PATH: str = "./data/overture.sqlite"
+    OVERTURE_MIN_CONFIDENCE: float = 0.3
+
+    IMPORTS_DIR: str = "./imports"
+    IMPORT_MAX_MB: int = 10
+    IMPORT_MAX_ROWS: int = 50000
+    IMPORT_BATCH_PAUSE_SECONDS: float = 0.15
+
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""
     SHEETS_API_URL: str = "https://sheets.googleapis.com/v4"
     GOOGLE_TOKEN_URL: str = "https://oauth2.googleapis.com/token"
-    # After leads change (a run, an edit, a do-not-contact) the sheet is refreshed once this many
-    # seconds have passed, so a burst of edits costs one update. Negative turns it off.
     SHEETS_AUTO_SYNC_DELAY_SECONDS: float = 20.0
 
     @field_validator("SECRET_KEY")
     @classmethod
     def _secret_key_must_be_strong(cls, value: str) -> str:
-        # It signs every login token; a guessable one lets anyone sign in as anybody.
-        if len(value) < 32:
+        if len(value) < SECRET_KEY_MIN_LENGTH:
             raise ValueError(
-                "SECRET_KEY must be at least 32 characters. Generate one with: "
+                f"SECRET_KEY must be at least {SECRET_KEY_MIN_LENGTH} characters. Generate one with: "
                 'python -c "import secrets; print(secrets.token_urlsafe(48))"'
             )
         return value
@@ -59,8 +58,8 @@ class Settings(BaseSettings):
     @classmethod
     def _log_level_must_be_known(cls, value: str) -> str:
         level = value.strip().upper()
-        if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-            raise ValueError("LOG_LEVEL must be one of DEBUG, INFO, WARNING, ERROR, CRITICAL")
+        if level not in LOG_LEVELS:
+            raise ValueError(f"LOG_LEVEL must be one of {', '.join(LOG_LEVELS)}")
         return level
 
     @field_validator("ENCRYPTION_KEY")

@@ -15,10 +15,7 @@ def keys(name, phones=(), domain=None, coords=None):
     return BusinessKeys(normalize_name(name), frozenset(phones), domain, lat, lng)
 
 
-# ---- dedupe ---------------------------------------------------------------
-
 def test_haversine_known_distance():
-    # Lahore -> Karachi is roughly 1,030 km as the crow flies.
     assert 1_000_000 < haversine_m(*LAHORE, 24.8607, 67.0011) < 1_060_000
     assert haversine_m(*LAHORE, *LAHORE) == 0
 
@@ -35,7 +32,6 @@ def test_shared_phone_matches_when_names_agree():
 
 
 def test_shared_phone_does_not_merge_unrelated_names():
-    # e.g. two shops behind one market switchboard
     a = keys("Zahid Battery House", phones={"+924235781769"})
     b = keys("Karachi Mobile Center", phones={"+924235781769"})
     assert not is_same_business(a, b).is_match
@@ -50,7 +46,6 @@ def test_nearby_similar_names_match_by_location():
 def test_nearby_but_different_or_distant_same_name_do_not_match():
     base = keys("Madina Electric", coords=(31.5204, 74.3587))
     assert not is_same_business(base, keys("Bilal Traders", coords=(31.5205, 74.3587))).is_match
-    # Same name, different branch a few km away: kept separate.
     assert not is_same_business(base, keys("Madina Electric", coords=(31.6204, 74.3587))).is_match
 
 
@@ -58,8 +53,6 @@ def test_missing_data_never_matches():
     assert not is_same_business(keys("Solar"), keys("Solar")).is_match
     assert not is_same_business(keys(""), keys("", phones={"+923001234567"})).is_match
 
-
-# ---- classify -------------------------------------------------------------
 
 SEGMENTS = [
     SegmentRule("dealer", (r"\bdealer",)),
@@ -86,11 +79,8 @@ def test_falls_back_to_search_segment_when_name_says_nothing():
 
 def test_classify_is_case_insensitive_and_bounds_long_names():
     assert classify("AUTHORISED DEALER", None, SEGMENTS).segment_slug == "dealer"
-    # A pattern hit past the length cap is ignored rather than scanned.
     assert classify("x" * 500 + " dealer", None, SEGMENTS).segment_slug is None
 
-
-# ---- scoring --------------------------------------------------------------
 
 WEIGHTS = {
     "has_phone": 30, "has_whatsapp_likely": 20, "has_website": 10,

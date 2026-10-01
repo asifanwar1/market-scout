@@ -15,8 +15,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.config import settings
-from app.database import Base
+from app.core.config import settings
+from app.core.constants import PERCENT_MAX, PRICE_DIGITS
+from app.core.database import Base
 
 
 class RunStatus(str, PyEnum):
@@ -48,9 +49,6 @@ run_geographies = Table(
 
 
 class Run(Base):
-    """One launch of the scouting pipeline. Kept as history: the profile / locations it used
-    may be edited or deleted later, so names are copied onto it and its tasks."""
-
     __tablename__ = "runs"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -71,7 +69,6 @@ class Run(Base):
     tasks_skipped = Column(Integer, nullable=False, default=0)
     enrich_total = Column(Integer, nullable=False, default=0)
     enrich_done = Column(Integer, nullable=False, default=0)
-    # {source_key: {found, new, merged, with_phone, with_website, with_email, requests, ...}}
     stats = Column(JSON, nullable=False, default=dict)
     error = Column(Text, nullable=True)
 
@@ -91,16 +88,14 @@ class Run(Base):
         if not self.tasks_total:
             return 0
         finished = self.tasks_done + self.tasks_failed + self.tasks_skipped
-        return min(100, round(100 * finished / self.tasks_total))
+        return min(PERCENT_MAX, round(PERCENT_MAX * finished / self.tasks_total))
 
     @property
     def estimated_cost_usd(self) -> float:
-        return round(self.paid_requests_used * settings.PLACES_COST_PER_REQUEST_USD, 2)
+        return round(self.paid_requests_used * settings.PLACES_COST_PER_REQUEST_USD, PRICE_DIGITS)
 
 
 class RunTask(Base):
-    """One search: a source asked about one search term in one city."""
-
     __tablename__ = "run_tasks"
     __table_args__ = (Index("ix_run_tasks_search_key", "source_key", "geography_id", "term_text"),)
 

@@ -1,5 +1,6 @@
-"""Turning what a source reported into stored, de-duplicated, classified businesses."""
+import logging
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -25,8 +26,6 @@ from app.features.businesses.models import (
 from app.features.compliance import service as compliance_service
 from app.features.insights.models import BusinessSnapshot
 
-# ~330 m: comfortably wider than the engine's match radius, so the SQL prefilter never
-# hides a candidate the precise check would accept.
 _GEO_PREFILTER_DEGREES = 0.003
 _PHONE_KINDS = (ContactKind.PHONE.value, ContactKind.WHATSAPP.value)
 _MATCH_PRIORITY = {"website": 0, "phone": 1, "location": 2}
@@ -35,8 +34,6 @@ _MAX_CATEGORIES = 20
 
 @dataclass(frozen=True)
 class ProfileScoring:
-    """Everything needed to classify and score a business against one profile."""
-
     profile_id: int
     segment_ids: dict[str, int]
     segment_rules: list[SegmentRule]
@@ -47,7 +44,6 @@ class ProfileScoring:
 class IngestContext:
     run_id: int | None
     geography_id: int | None
-    # The segment of the search term that found this business (a hint, not a verdict).
     hint_segment_slug: str | None
     now: datetime
     profile: ProfileScoring
@@ -55,23 +51,65 @@ class IngestContext:
 
 @dataclass(frozen=True)
 class IngestOutcome:
-    # None when the record was refused because the business asked not to be contacted.
     business: Business | None
     created: bool
-    # What the source itself provided, for judging source quality.
     phone_count: int
     has_website: bool
     has_email: bool
     blocked: bool = False
 
 
+logger = logging.getLogger(__name__)
+
+STAT_FIELDS = ("found", "new", "merged", "blocked", "with_phone", "with_website", "with_email", "errors")
+
+
+def build_profile_scoring(profile) -> ProfileScoring:
+    from app.features.profiles.schemas import ScoringConfig
+
+    weights = {**ScoringConfig().model_dump(), **(profile.scoring_config or {})}
+    return ProfileScoring(
+        profile_id=profile.id,
+        segment_ids={segment.slug: segment.id for segment in profile.segments},
+        segment_rules=[
+            SegmentRule(segment.slug, tuple((segment.match_rules or {}).get("name_patterns", [])))
+            for segment in profile.segments
+        ],
+        weights=weights,
+    )
+
+
+def ingest_records(db: Session, items: Iterable[tuple[RawBusiness, IngestContext]]) -> dict[str, int]:
+    counts = dict.fromkeys(STAT_FIELDS, 0)
+    for raw, context in items:
+        try:
+            with db.begin_nested():
+                outcome = ingest_business(db, raw, context)
+        except Exception:
+            logger.exception("Could not store %s/%s", raw.source_key, raw.external_id)
+            counts["errors"] += 1
+            continue
+
+        if outcome.blocked:
+            counts["blocked"] += 1
+            continue
+
+        counts["found"] += 1
+        counts["new" if outcome.created else "merged"] += 1
+        counts["with_phone"] += outcome.phone_count > 0
+        counts["with_website"] += outcome.has_website
+        counts["with_email"] += outcome.has_email
+    return counts
+
+
 def ingest_business(db: Session, raw: RawBusiness, ctx: IngestContext) -> IngestOutcome:
     phones = extract_phones_from_many(raw.phones)
     site = normalize_website(raw.website)
     emails = list(dict.fromkeys(e for e in (normalize_email(x) for x in raw.emails) if e))
+    all_phones = frozenset(phone.e164 for phone in phones)
     keys = BusinessKeys(
         normalized_name=normalize_name(raw.name),
-        phones=frozenset(phone.e164 for phone in phones),
+        phones=all_phones - frozenset(raw.unreliable_phones),
         domain=site.domain,
         latitude=raw.latitude,
         longitude=raw.longitude,
@@ -84,10 +122,8 @@ def ingest_business(db: Session, raw: RawBusiness, ctx: IngestContext) -> Ingest
     )
     business = record.business if record else _find_match(db, keys)
 
-    # Someone who asked not to be contacted must not come back through a fresh scrape, whether
-    # we already know them (same business) or only recognise a blocked phone/email.
     blocked = business is not None and compliance_service.is_business_blocked(db, business.id)
-    if blocked or compliance_service.identifiers_blocked(db, keys.phones, emails):
+    if blocked or compliance_service.identifiers_blocked(db, all_phones, emails):
         return IngestOutcome(business=None, created=False, phone_count=0, has_website=False, has_email=False, blocked=True)
 
     created = business is None
@@ -130,7 +166,6 @@ def add_enrichment_contacts(
     instagram: str | None,
     source_key: str,
 ) -> int:
-    """Attach contacts found on a business's website. Returns how many were new."""
     added = _add_contact_points(
         db, business, source_key, phones, emails, None, None,
         whatsapp=whatsapp, facebook=facebook, instagram=instagram,
@@ -140,7 +175,6 @@ def add_enrichment_contacts(
 
 
 def classify_business(db: Session, business: Business, profile: ProfileScoring, hint_slug: str | None) -> None:
-    """Assign (or keep) the business's segment for a profile and recompute its score."""
     result = classify(business.name, hint_slug, profile.segment_rules)
     segment_id = profile.segment_ids.get(result.segment_slug) if result.segment_slug else None
 
@@ -153,19 +187,15 @@ def classify_business(db: Session, business: Business, profile: ProfileScoring, 
         classification = BusinessClassification(business_id=business.id, profile_id=profile.profile_id, score=0)
         db.add(classification)
 
-    # A later search only overrides an earlier verdict when the name backs it up.
     if classification.segment_id is None or result.name_matched:
         classification.segment_id = segment_id or classification.segment_id
 
     signals = _contact_signals(db, business)
     classification.score = score_lead(signals, result.name_matched, profile.weights)
-    # The session doesn't autoflush; make the row visible to whatever queries next.
     db.flush()
 
 
 def rescore_business(db: Session, business: Business, profile: ProfileScoring) -> None:
-    """Re-run classification for a business already classified under this profile (e.g. after
-    enrichment added an email or WhatsApp number), keeping its current segment as the hint."""
     slug_by_id = {segment_id: slug for slug, segment_id in profile.segment_ids.items()}
     existing = (
         db.query(BusinessClassification.segment_id)
@@ -175,8 +205,6 @@ def rescore_business(db: Session, business: Business, profile: ProfileScoring) -
     hint = slug_by_id.get(existing[0]) if existing else None
     classify_business(db, business, profile, hint)
 
-
-# ---- internals ---------------------------------------------------------------
 
 def _find_match(db: Session, keys: BusinessKeys) -> Business | None:
     candidate_ids: set[int] = set()
@@ -226,7 +254,6 @@ def _find_match(db: Session, keys: BusinessKeys) -> Business | None:
 
 
 def _merge_fields(business: Business, raw: RawBusiness, website_url: str | None, domain: str | None, ctx: IngestContext) -> None:
-    """Fill gaps from this source; never overwrite what is already known."""
     business.last_seen_at = ctx.now
     if not business.address and raw.address:
         business.address = raw.address
@@ -236,7 +263,6 @@ def _merge_fields(business: Business, raw: RawBusiness, website_url: str | None,
         business.website, business.website_domain = website_url, domain
     if business.geography_id is None:
         business.geography_id = ctx.geography_id
-    # Ratings are only comparable within one source; prefer the one backed by more reviews.
     if raw.review_count is not None and raw.review_count >= (business.review_count or 0):
         business.rating, business.review_count = raw.rating, raw.review_count
     if raw.categories:
@@ -245,7 +271,6 @@ def _merge_fields(business: Business, raw: RawBusiness, website_url: str | None,
 
 
 def _record_snapshot(db: Session, business: Business, ctx: IngestContext) -> None:
-    """Note the business's rating and review count as of this run (for market-change insights)."""
     if ctx.run_id is None or (business.rating is None and business.review_count is None):
         return
     snapshot = (
@@ -309,7 +334,6 @@ def _add_contact_points(
             )
 
     for phone in phones:
-        # A Pakistani mobile number can be assumed to be on WhatsApp; a landline can't.
         want(ContactKind.PHONE, phone.e164, is_mobile=phone.is_mobile, whatsapp_likely=phone.is_mobile)
     for number in whatsapp or []:
         want(ContactKind.WHATSAPP, number, is_mobile=True, whatsapp_likely=True)

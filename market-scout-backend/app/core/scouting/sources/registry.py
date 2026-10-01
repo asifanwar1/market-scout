@@ -1,10 +1,6 @@
-"""The catalogue of data sources the app knows about, and how to construct one.
-
-Adding a source = a new class implementing ``Source`` plus one entry here.
-"""
 from dataclasses import dataclass
 
-from app.core.scouting.sources import google_places, osm
+from app.core.scouting.sources import google_places, osm, overture
 from app.core.scouting.sources.base import Source
 
 KIND_DISCOVERY = "discovery"
@@ -21,8 +17,8 @@ class SourceInfo:
     kind: str
     requires_api_key: bool
     default_enabled: bool
-    # Billable per request; runs count these against their request cap.
     is_paid: bool = False
+    requires_dataset: bool = False
 
 
 CATALOG: tuple[SourceInfo, ...] = (
@@ -33,6 +29,15 @@ CATALOG: tuple[SourceInfo, ...] = (
         kind=KIND_DISCOVERY,
         requires_api_key=False,
         default_enabled=True,
+    ),
+    SourceInfo(
+        key=overture.SOURCE_KEY,
+        name="Overture Maps",
+        description="Free open dataset with many more Pakistani businesses and phone numbers than OpenStreetMap. Searches are instant.",
+        kind=KIND_DISCOVERY,
+        requires_api_key=False,
+        default_enabled=True,
+        requires_dataset=True,
     ),
     SourceInfo(
         key=google_places.SOURCE_KEY,
@@ -60,6 +65,20 @@ def get_source_info(key: str) -> SourceInfo | None:
     return _BY_KEY.get(key)
 
 
+IMPORT_PREFIX = "import:"
+
+
+def is_import_key(key: str) -> bool:
+    return key.startswith(IMPORT_PREFIX)
+
+
+def source_label(key: str) -> str:
+    info = get_source_info(key)
+    if info is not None:
+        return info.name
+    return key[len(IMPORT_PREFIX):] if is_import_key(key) else key
+
+
 def build_source(
     key: str,
     *,
@@ -67,9 +86,13 @@ def build_source(
     user_agent: str,
     overpass_url: str,
     overpass_min_interval_s: float,
+    overture_path: str,
+    overture_min_confidence: float,
 ) -> Source:
     if key == osm.SOURCE_KEY:
         return osm.OsmSource(overpass_url, user_agent, min_interval_s=overpass_min_interval_s)
+    if key == overture.SOURCE_KEY:
+        return overture.OvertureSource(overture_path, min_confidence=overture_min_confidence)
     if key == google_places.SOURCE_KEY:
         if not api_key:
             raise ValueError("Google Places needs an API key")

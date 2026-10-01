@@ -1,13 +1,18 @@
-"""Reading a Google service-account key and exchanging it for an access token."""
 import json
 import time
 from dataclasses import dataclass
+from http import HTTPStatus
 
 import httpx
 from cryptography.hazmat.primitives import serialization
 from jose import jwt
 
+from app.core.constants import EMAIL_SEPARATOR
 from app.core.sheets.errors import SheetsAuthError, SheetsError
+
+ACCOUNT_TYPE = "service_account"
+ERROR_DESCRIPTION_MAX_LENGTH = 200
+
 
 SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -19,13 +24,11 @@ class ServiceAccount:
     client_email: str
     private_key: str = ""
 
-    def __repr__(self) -> str:  # never let the key reach a log line or traceback
+    def __repr__(self) -> str:
         return f"ServiceAccount(client_email={self.client_email!r})"
 
 
 def parse_service_account(raw: str) -> ServiceAccount:
-    """Validate the JSON a person downloads from Google Cloud. Messages are written for them,
-    and never echo any part of the private key."""
     try:
         data = json.loads(raw)
     except (TypeError, ValueError):
@@ -33,14 +36,14 @@ def parse_service_account(raw: str) -> ServiceAccount:
     if not isinstance(data, dict):
         raise SheetsError("That isn't a service-account key file.")
 
-    if data.get("type") != "service_account":
+    if data.get("type") != ACCOUNT_TYPE:
         raise SheetsError(
             'This JSON is not a service-account key (its "type" should be "service_account"). '
             "Create the key under IAM & Admin > Service Accounts, not an OAuth client."
         )
     email = data.get("client_email")
     private_key = data.get("private_key")
-    if not isinstance(email, str) or "@" not in email:
+    if not isinstance(email, str) or EMAIL_SEPARATOR not in email:
         raise SheetsError('The key file has no "client_email".')
     if not isinstance(private_key, str) or not private_key.strip():
         raise SheetsError('The key file has no "private_key".')
@@ -57,7 +60,6 @@ def request_access_token(
     token_url: str = TOKEN_URL,
     now: float | None = None,
 ) -> str:
-    """Sign a short-lived assertion with the private key and trade it for an access token."""
     issued_at = int(now if now is not None else time.time())
     assertion = jwt.encode(
         {
@@ -78,7 +80,7 @@ def request_access_token(
     except httpx.TransportError as exc:
         raise SheetsError(f"Couldn't reach Google to sign in ({exc.__class__.__name__}). Check the internet connection.") from exc
 
-    if response.status_code != 200:
+    if response.status_code != HTTPStatus.OK:
         detail = _error_description(response)
         raise SheetsAuthError(
             "Google rejected the service-account key"
@@ -96,4 +98,4 @@ def _error_description(response: httpx.Response) -> str:
         body = response.json()
     except ValueError:
         return ""
-    return str(body.get("error_description") or body.get("error") or "")[:200]
+    return str(body.get("error_description") or body.get("error") or "")[:ERROR_DESCRIPTION_MAX_LENGTH]

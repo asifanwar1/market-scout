@@ -1,6 +1,7 @@
 from jose import JWTError
 from sqlalchemy.orm import Session
 
+from app.core.constants import TOKEN_TYPE_BEARER, TOKEN_TYPE_CLAIM, TOKEN_TYPE_REFRESH
 from app.core.exceptions import BadRequestException, UnauthorizedException
 from app.core.security import (
     create_access_token,
@@ -14,20 +15,16 @@ from app.features.users.models import User
 
 
 def _issue_tokens(user: User) -> dict:
-    # "tv" is checked against user.token_version on every request, so bumping the
-    # version invalidates every token issued before it.
     claims = {"sub": str(user.id), "tv": user.token_version}
     return {
         "access_token": create_access_token(claims),
         "refresh_token": create_refresh_token(claims),
-        "token_type": "bearer",
+        "token_type": TOKEN_TYPE_BEARER,
     }
 
 
 def login(db: Session, email: str, password: str) -> dict:
     user = users_service.get_user_by_email(db, email)
-    # Same message for unknown email, wrong password and inactive account so the
-    # endpoint can't be used to discover which emails exist.
     if not user or not user.is_active or not verify_password(password, user.hashed_password):
         raise UnauthorizedException("Invalid email or password")
     return _issue_tokens(user)
@@ -39,7 +36,7 @@ def refresh_tokens(db: Session, refresh_token: str) -> dict:
     except JWTError:
         raise UnauthorizedException("Invalid refresh token") from None
 
-    if payload.get("type") != "refresh":
+    if payload.get(TOKEN_TYPE_CLAIM) != TOKEN_TYPE_REFRESH:
         raise UnauthorizedException("Invalid refresh token")
 
     try:

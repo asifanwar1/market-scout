@@ -1,10 +1,6 @@
-"""A small Google Sheets client: just what mirroring one table into one worksheet needs.
-
-Pure Python (no database or web framework), like the scouting engine, so it can be tested with
-``httpx.MockTransport`` and no network.
-"""
 import time
 from collections.abc import Callable, Sequence
+from http import HTTPStatus
 from urllib.parse import quote
 
 import httpx
@@ -13,21 +9,28 @@ from app.core.scouting.sources.base import SourceError, request_with_retries
 from app.core.sheets.errors import SheetsAuthError, SheetsError
 from app.core.sheets.service_account import TOKEN_URL, ServiceAccount, request_access_token
 
+ALPHABET_SIZE = 26
+REQUEST_TIMEOUT_SECONDS = 30.0
+API_DISABLED_REASON = "SERVICE_DISABLED"
+API_DISABLED_PHRASES = ("has not been used", "is disabled")
+NOT_A_GOOGLE_SHEET_PHRASE = "not supported for this document"
+DEFAULT_SHEET_ROWS = 1000
+DEFAULT_SHEET_COLUMNS = 26
+ERROR_MESSAGE_MAX_LENGTH = 300
+
+
 API_BASE = "https://sheets.googleapis.com/v4"
 WRITE_CHUNK_ROWS = 1000
-# Google rejects a cell over 50,000 characters; stay well clear of it.
 MAX_CELL_CHARS = 40_000
-# Sync clears with a fixed number of retries kept short: a person is waiting on the result.
 RETRY_DELAYS = (2.0, 5.0, 15.0)
 
 Cell = str | int | float | None
 
 
 def column_letter(index: int) -> str:
-    """1 -> A, 26 -> Z, 27 -> AA."""
     letters = ""
     while index > 0:
-        index, remainder = divmod(index - 1, 26)
+        index, remainder = divmod(index - 1, ALPHABET_SIZE)
         letters = chr(ord("A") + remainder) + letters
     return letters
 
@@ -52,7 +55,7 @@ class SheetsClient:
         api_base: str = API_BASE,
         token_url: str = TOKEN_URL,
         transport: httpx.BaseTransport | None = None,
-        timeout: float = 30.0,
+        timeout: float = REQUEST_TIMEOUT_SECONDS,
         sleep: Callable[[float], None] = time.sleep,
         retry_delays: tuple[float, ...] = RETRY_DELAYS,
     ) -> None:
@@ -73,10 +76,8 @@ class SheetsClient:
     def __exit__(self, *_exc) -> None:
         self.close()
 
-    # ---- public ----------------------------------------------------------------------------
 
     def spreadsheet_title(self, spreadsheet_id: str) -> str:
-        """The spreadsheet's name. Proves the key works and the sheet is shared with it."""
         data = self._call("GET", f"/spreadsheets/{spreadsheet_id}", params={"fields": "properties.title"})
         return (data.get("properties") or {}).get("title") or "Untitled"
 
@@ -87,14 +88,8 @@ class SheetsClient:
         header: Sequence[str],
         rows: Sequence[Sequence[Cell]],
     ) -> int:
-        """Make the worksheet hold exactly ``header`` + ``rows``, creating it if needed.
-
-        Idempotent: running it twice with the same input leaves the same sheet. It only ever
-        touches the worksheet called ``title``, and refuses one that has someone else's data in it.
-        Returns the number of data rows written.
-        """
         column_count = len(header)
-        row_count = len(rows) + 1  # header
+        row_count = len(rows) + 1
         sheet = self._find_worksheet(spreadsheet_id, title)
         if sheet is None:
             sheet = self._add_worksheet(spreadsheet_id, title, max(row_count, 2), column_count)
@@ -117,7 +112,6 @@ class SheetsClient:
         self._format(spreadsheet_id, sheet["sheetId"], max(row_count, 2), column_count)
         return len(rows)
 
-    # ---- worksheet plumbing ---------------------------------------------------------------------
 
     def _find_worksheet(self, spreadsheet_id: str, title: str) -> dict | None:
         data = self._call(
@@ -137,8 +131,6 @@ class SheetsClient:
         return _normalise_sheet(data["replies"][0]["addSheet"]["properties"])
 
     def _refuse_foreign_worksheet(self, spreadsheet_id: str, title: str, first_header: str) -> None:
-        # The sheet is cleared and rewritten on every sync, so it must never be one somebody
-        # else keeps their own data in.
         data = self._call(
             "GET", f"/spreadsheets/{spreadsheet_id}/values/{quote(f'{_quote_title(title)}!A1', safe='')}"
         )
@@ -165,7 +157,6 @@ class SheetsClient:
         return {**sheet, "rows": new_rows, "columns": new_columns}
 
     def _clear_leftovers(self, spreadsheet_id: str, quoted_title: str, sheet: dict, rows: int, columns: int) -> None:
-        """Wipe what the previous, longer or wider, version left below and to the right."""
         ranges = []
         if sheet["rows"] > rows:
             ranges.append(f"{quoted_title}!A{rows + 1}:{column_letter(sheet['columns'])}{sheet['rows']}")
@@ -205,7 +196,6 @@ class SheetsClient:
     def _batch_update(self, spreadsheet_id: str, requests: list[dict]) -> dict:
         return self._call("POST", f"/spreadsheets/{spreadsheet_id}:batchUpdate", json={"requests": requests})
 
-    # ---- HTTP ---------------------------------------------------------------------------------------
 
     def _access_token(self, refresh: bool = False) -> str:
         if self._token is None or refresh:
@@ -214,10 +204,10 @@ class SheetsClient:
 
     def _call(self, method: str, path: str, **kwargs) -> dict:
         response = self._send(method, path, **kwargs)
-        if response.status_code == 401:  # the token expired mid-sync; sign in once more
+        if response.status_code == HTTPStatus.UNAUTHORIZED:
             self._access_token(refresh=True)
             response = self._send(method, path, **kwargs)
-        if response.status_code >= 400:
+        if response.status_code >= HTTPStatus.BAD_REQUEST:
             raise self._to_error(response)
         return response.json() if response.content else {}
 
@@ -237,21 +227,21 @@ class SheetsClient:
         status = response.status_code
         lowered = message.lower()
 
-        if status == 401:
+        if status == HTTPStatus.UNAUTHORIZED:
             return SheetsAuthError("Google no longer accepts the service-account key. Save a new key and try again.")
-        if status == 404:
+        if status == HTTPStatus.NOT_FOUND:
             return SheetsError("That spreadsheet wasn't found. Check the link or ID.")
-        if status == 403 and ("SERVICE_DISABLED" in reasons or "has not been used" in lowered or "is disabled" in lowered):
+        if status == HTTPStatus.FORBIDDEN and (API_DISABLED_REASON in reasons or any(phrase in lowered for phrase in API_DISABLED_PHRASES)):
             return SheetsError(
                 "The Google Sheets API isn't switched on for the service account's Google Cloud project. "
                 "In Google Cloud open APIs & Services > Library, enable \"Google Sheets API\", wait a minute and try again."
             )
-        if status == 403:
+        if status == HTTPStatus.FORBIDDEN:
             return SheetsError(
                 f"The service account can't open this spreadsheet. Share it with {self._account.client_email} "
                 "and give it Editor access."
             )
-        if status == 400 and "not supported for this document" in lowered:
+        if status == HTTPStatus.BAD_REQUEST and NOT_A_GOOGLE_SHEET_PHRASE in lowered:
             return SheetsError(
                 "That file is an uploaded Excel file, not a Google Sheet. Open it in Google Sheets and choose "
                 "File > Save as Google Sheets, then use the new file."
@@ -264,8 +254,8 @@ def _normalise_sheet(properties: dict) -> dict:
     return {
         "sheetId": properties["sheetId"],
         "title": properties.get("title"),
-        "rows": grid.get("rowCount", 1000),
-        "columns": grid.get("columnCount", 26),
+        "rows": grid.get("rowCount", DEFAULT_SHEET_ROWS),
+        "columns": grid.get("columnCount", DEFAULT_SHEET_COLUMNS),
     }
 
 
@@ -277,4 +267,4 @@ def _google_error(response: httpx.Response) -> tuple[str, set[str]]:
     if not isinstance(error, dict):
         return "", set()
     reasons = {d.get("reason") for d in error.get("details", []) if isinstance(d, dict)} | {error.get("status")}
-    return str(error.get("message") or "")[:300], {r for r in reasons if r}
+    return str(error.get("message") or "")[:ERROR_MESSAGE_MAX_LENGTH], {r for r in reasons if r}

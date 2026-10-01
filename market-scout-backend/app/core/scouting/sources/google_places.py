@@ -1,7 +1,6 @@
-"""Google Places API (New) Text Search. Needs an API key; billed per request, so every
-search reports how many requests it made and honours a request cap."""
 import time
 from collections.abc import Callable
+from http import HTTPStatus
 
 import httpx
 
@@ -12,9 +11,13 @@ from app.core.scouting.sources.base import (
 )
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery, SearchResult
 
+CLOSED_STATUSES = ("CLOSED_PERMANENTLY", "CLOSED_TEMPORARILY")
+REQUEST_TIMEOUT_SECONDS = 30
+
+
 SOURCE_KEY = "google_places"
 ENDPOINT = "https://places.googleapis.com/v1/places:searchText"
-MAX_PAGES = 3  # the API returns at most 60 results (3 pages of 20) per query
+MAX_PAGES = 3
 PAGE_SIZE = 20
 
 _FIELD_MASK = ",".join(
@@ -38,7 +41,6 @@ _FIELD_MASK = ",".join(
 
 
 def area_to_rectangle(area: SearchArea) -> dict:
-    """Text Search can only hard-restrict to a rectangle."""
     south, west, north, east = area.rectangle
     return {
         "low": {"latitude": south, "longitude": west},
@@ -49,7 +51,7 @@ def area_to_rectangle(area: SearchArea) -> dict:
 def parse_places(places: list[dict]) -> list[RawBusiness]:
     businesses: list[RawBusiness] = []
     for place in places:
-        if place.get("businessStatus") in ("CLOSED_PERMANENTLY", "CLOSED_TEMPORARILY"):
+        if place.get("businessStatus") in CLOSED_STATUSES:
             continue
         name = ((place.get("displayName") or {}).get("text") or "").strip()
         if not name or not place.get("id"):
@@ -89,7 +91,7 @@ class GooglePlacesSource:
         sleep: Callable[[float], None] = time.sleep,
     ):
         self._api_key = api_key
-        self._client = client or httpx.Client(timeout=30)
+        self._client = client or httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS)
         self._sleep = sleep
 
     def search(self, query: SearchQuery, max_requests: int | None = None) -> SearchResult:
@@ -123,7 +125,6 @@ class GooglePlacesSource:
 
     def test_connection(self) -> tuple[bool, str]:
         try:
-            # IDs-only field mask: the cheapest possible request that still validates the key.
             self._post({"textQuery": "solar", "pageSize": 1, "regionCode": "PK"}, "places.id")
         except SourceError as exc:
             return False, str(exc)
@@ -138,9 +139,9 @@ class GooglePlacesSource:
             json=body,
             headers={"X-Goog-Api-Key": self._api_key, "X-Goog-FieldMask": field_mask},
         )
-        if response.status_code in (401, 403):
+        if response.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
             raise SourceAuthError(_error_message(response, "Google rejected the API key or its permissions"))
-        if response.status_code != 200:
+        if response.status_code != HTTPStatus.OK:
             raise SourceError(_error_message(response, f"Google Places returned HTTP {response.status_code}"))
         return response.json()
 

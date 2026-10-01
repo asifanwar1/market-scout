@@ -16,6 +16,9 @@ const DoNotContact = lazy(() => import("@/pages/DoNotContact/DoNotContact"));
 const Runs = lazy(() => import("@/pages/Runs/Runs"));
 const NewRun = lazy(() => import("@/pages/Runs/NewRun/NewRun"));
 const RunDetails = lazy(() => import("@/pages/Runs/RunDetails/RunDetails"));
+const Imports = lazy(() => import("@/pages/Imports/Imports"));
+const NewImport = lazy(() => import("@/pages/Imports/NewImport/NewImport"));
+const ImportDetails = lazy(() => import("@/pages/Imports/ImportDetails/ImportDetails"));
 const Profiles = lazy(() => import("@/pages/Profiles/Profiles"));
 const ProfileEditor = lazy(() => import("@/pages/Profiles/ProfileEditor/ProfileEditor"));
 const Locations = lazy(() => import("@/pages/Locations/Locations"));
@@ -47,6 +50,9 @@ export const routes: RouteObject[] = [
                     { path: APP_ROUTES.RUNS, element: <Runs /> },
                     { path: APP_ROUTES.RUNS_NEW, element: <NewRun /> },
                     { path: APP_ROUTES.RUNS_DETAILS, element: <RunDetails /> },
+                    { path: APP_ROUTES.IMPORTS, element: <Imports /> },
+                    { path: APP_ROUTES.IMPORTS_NEW, element: <NewImport /> },
+                    { path: APP_ROUTES.IMPORTS_DETAILS, element: <ImportDetails /> },
                     { path: APP_ROUTES.PROFILES, element: <Profiles /> },
                     { path: APP_ROUTES.PROFILES_NEW, element: <ProfileEditor /> },
                     { path: APP_ROUTES.PROFILES_DETAILS, element: <ProfileEditor /> },

@@ -1,10 +1,3 @@
-"""An in-memory stand-in for Google's token endpoint and Sheets API v4.
-
-It checks the things that matter to the real service: the token request is a properly signed
-assertion, every call carries the bearer token, writes can't go outside the worksheet's grid, and
-a worksheet can be created, grown, cleared and formatted. ``handle`` is transport-agnostic so the
-same fake backs ``httpx.MockTransport`` in tests and a real local HTTP server for browser tests.
-"""
 import json
 import re
 from urllib.parse import unquote
@@ -28,7 +21,6 @@ class FakeGoogle:
     def __init__(self, public_key_pem: str, client_email: str) -> None:
         self.public_key_pem = public_key_pem
         self.client_email = client_email
-        # spreadsheet id -> {"title": str, "sheets": {title: worksheet}}
         self.spreadsheets: dict[str, dict] = {}
         self.forbidden: set[str] = set()
         self.api_disabled = False
@@ -39,7 +31,6 @@ class FakeGoogle:
         self.expire_token_once = False
         self.fail_next: list[tuple[int, dict]] = []
 
-    # ---- test helpers ------------------------------------------------------------------------
 
     def add_spreadsheet(self, spreadsheet_id: str, title: str = "Sales leads", worksheets: dict | None = None) -> None:
         self.spreadsheets[spreadsheet_id] = {"title": title, "sheets": {}}
@@ -51,7 +42,6 @@ class FakeGoogle:
             self.spreadsheets[spreadsheet_id]["sheets"][name] = sheet
 
     def table(self, spreadsheet_id: str, worksheet: str) -> list[list]:
-        """The worksheet as a list of rows, trailing empty cells and rows trimmed."""
         sheet = self.spreadsheets[spreadsheet_id]["sheets"][worksheet]
         cells = {k: v for k, v in sheet["cells"].items() if v not in ("", None)}
         if not cells:
@@ -70,7 +60,6 @@ class FakeGoogle:
             "cells": {}, "frozen": 0, "bold_header": False, "filter": None,
         }
 
-    # ---- HTTP surface ------------------------------------------------------------------------
 
     def handle(self, method: str, url_path: str, params: dict, headers: dict, body: bytes) -> tuple[int, dict]:
         if url_path.endswith("/token"):
@@ -132,7 +121,7 @@ class FakeGoogle:
                 unquote(form["assertion"]), self.public_key_pem, algorithms=["RS256"],
                 audience=self.audience,
             )
-        except Exception as exc:  # a badly signed assertion is what real Google rejects
+        except Exception as exc:
             return 400, {"error": "invalid_grant", "error_description": f"Invalid JWT: {exc.__class__.__name__}"}
         assert claims["iss"] == self.client_email
         assert claims["scope"] == "https://www.googleapis.com/auth/spreadsheets"

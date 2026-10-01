@@ -44,8 +44,6 @@ def contacts(db, business):
     return {(c.kind, c.value) for c in db.query(ContactPoint).filter_by(business_id=business.id)}
 
 
-# ---- creating -----------------------------------------------------------------
-
 def test_new_business_is_stored_with_contacts_provenance_and_classification(db_session, world):
     outcome = service.ingest_business(
         db_session,
@@ -86,7 +84,6 @@ def test_classification_uses_the_search_segment_and_scores_signals(db_session, w
     classification = db_session.query(BusinessClassification).one()
 
     assert {s.id: s.slug for s in world[0].segments}[classification.segment_id] == "dealer"
-    # phone 30 + whatsapp-likely 20 + website 10 + email 10 + reviews 10; name has no segment keyword.
     assert classification.score == 80
     assert outcome.business.review_count == 10
 
@@ -97,10 +94,8 @@ def test_name_evidence_overrides_the_search_segment(db_session, world):
     )
     classification = db_session.query(BusinessClassification).filter_by(business_id=outcome.business.id).one()
     assert {s.id: s.slug for s in world[0].segments}[classification.segment_id] == "wholesaler"
-    assert classification.score == 30 + 20 + 20     # phone + whatsapp-likely + name match
+    assert classification.score == 30 + 20 + 20
 
-
-# ---- merging ---------------------------------------------------------------------
 
 def test_seeing_the_same_record_again_adds_nothing_but_refreshes_it(db_session, world):
     first = service.ingest_business(db_session, raw(phones=["03004438424"]), ctx_for(world))
@@ -138,7 +133,6 @@ def test_two_sources_describing_one_business_become_one_lead(db_session, world):
     business = places.business
     assert db_session.query(Business).count() == 1
     assert {r.source_key for r in db_session.query(SourceRecord)} == {"osm", "google_places"}
-    # Gaps are filled from the richer source, and nothing is duplicated.
     assert business.website == "https://alnoor.pk" and business.address == "12 Mall Road"
     assert (business.rating, business.review_count) == (4.6, 41)
     assert business.categories == ["shop=electrical", "electronics_store"]
@@ -192,7 +186,7 @@ def test_a_later_search_does_not_reclassify_without_name_evidence(db_session, wo
     plain = service.ingest_business(db_session, raw("n/9", "Bright Future", latitude=30.0, longitude=70.0), ctx_for(world, hint="dealer"))
     service.ingest_business(db_session, raw("n/9", "Bright Future", latitude=30.0, longitude=70.0), ctx_for(world, hint="installer"))
     row = db_session.query(BusinessClassification).filter_by(business_id=plain.business.id).one()
-    assert {s.id: s.slug for s in world[0].segments}[row.segment_id] == "dealer"     # first verdict stands
+    assert {s.id: s.slug for s in world[0].segments}[row.segment_id] == "dealer"
 
 
 def test_unusable_phone_numbers_and_emails_are_ignored(db_session, world):
@@ -203,8 +197,6 @@ def test_unusable_phone_numbers_and_emails_are_ignored(db_session, world):
     assert contacts(db_session, outcome.business) == set()
     assert db_session.query(BusinessClassification).one().score == 0
 
-
-# ---- enrichment ---------------------------------------------------------------------
 
 def test_enrichment_contacts_are_added_once_and_raise_the_score(db_session, world):
     outcome = service.ingest_business(db_session, raw(phones=["042 3577 1769"]), ctx_for(world))
@@ -218,10 +210,27 @@ def test_enrichment_contacts_are_added_once_and_raise_the_score(db_session, worl
     added = service.add_enrichment_contacts(db_session, business, **kwargs)
     service.rescore_business(db_session, business, scoring)
 
-    assert added == 4          # email + mobile phone + WhatsApp number + Facebook page
+    assert added == 4
     assert service.add_enrichment_contacts(db_session, business, **kwargs) == 0
     whatsapp = db_session.query(ContactPoint).filter_by(kind="whatsapp").one()
     assert (whatsapp.whatsapp_likely, whatsapp.source_key) == (True, "website_enrichment")
-    # Landline-only (30) gained a WhatsApp-capable number (+20) and an email (+10).
     assert before == 30
     assert db_session.query(BusinessClassification).one().score == 60
+
+
+def test_a_number_marked_unreliable_is_not_used_to_match_but_is_still_stored(db_session, seeded_profile):
+    ingest_business = service.ingest_business
+    context = IngestContext(run_id=None, geography_id=None, hint_segment_slug=None, now=datetime.now(UTC),
+                            profile=_profile_scoring(seeded_profile))
+
+    def raw(external_id, name, unreliable):
+        return RawBusiness(source_key="import:t", external_id=external_id, name=name, phones=["0330-5845448"],
+                           unreliable_phones=["+923305845448"] if unreliable else [])
+
+    first = ingest_business(db_session, raw("a", "Royal Energy Pakistan", False), context).business
+    second = ingest_business(db_session, raw("b", "AFM Energy", True), context)
+    third = ingest_business(db_session, raw("c", "AFM Energy", False), context)
+
+    assert second.created and second.business.id != first.id
+    assert not third.created and third.business.id == first.id
+    assert {c.value for c in second.business.contact_points if c.kind == "phone"} == {"+923305845448"}

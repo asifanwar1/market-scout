@@ -15,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.database import Base
+from app.core.database import Base
 
 
 class LeadStatus(str, PyEnum):
@@ -51,7 +51,6 @@ class Business(Base):
     review_count = Column(Integer, nullable=True)
     categories = Column(JSON, nullable=False, default=list)
 
-    # Sales workflow
     lead_status = Column(String, nullable=False, default=LeadStatus.NEW.value, index=True)
     assigned_to_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     notes = Column(Text, nullable=True)
@@ -79,11 +78,9 @@ class ContactPoint(Base):
     id = Column(Integer, primary_key=True, index=True)
     business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
     kind = Column(String, nullable=False)
-    # Normalised: E.164 for phone/whatsapp, lower-case for email, canonical URL for socials.
     value = Column(String, nullable=False, index=True)
     is_mobile = Column(Boolean, nullable=False, default=False)
     whatsapp_likely = Column(Boolean, nullable=False, default=False)
-    # Provenance: which source reported this, and when we first saw it.
     source_key = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -91,9 +88,6 @@ class ContactPoint(Base):
 
 
 class SourceRecord(Base):
-    """What one source said about a business, kept whole so it can be re-processed later
-    without re-fetching (and without re-paying)."""
-
     __tablename__ = "source_records"
     __table_args__ = (UniqueConstraint("source_key", "external_id", name="uq_source_records_source_external"),)
 

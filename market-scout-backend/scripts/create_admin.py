@@ -1,19 +1,14 @@
-"""One-off script to create the first admin account (or promote an existing user).
-
-Users can only be created by an admin through the API, so this is how the very first
-admin comes into existence. Run it from the project root with the venv active:
-
-    python -m scripts.create_admin --email you@example.com --password "Str0ng!Pass" --name "Your Name"
-
-If the email already exists, that user is promoted to admin and reactivated instead of
-creating a duplicate account.
-"""
 import argparse
 import sys
 
+from app.core.database import SessionLocal
 from app.core.security import hash_password, validate_password_strength
-from app.database import SessionLocal
 from app.features.users.models import User, UserRole
+
+USAGE = (
+    "Create the first admin account, or promote an existing user to admin. "
+    'Example: python -m scripts.create_admin --email you@example.com --password "Str0ng!Pass" --name "Your Name"'
+)
 
 
 def create_or_promote_admin(email: str, password: str | None, full_name: str | None) -> None:
@@ -49,7 +44,7 @@ def create_or_promote_admin(email: str, password: str | None, full_name: str | N
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=USAGE)
     parser.add_argument("--email", required=True)
     parser.add_argument("--password", help="Required when creating a new user")
     parser.add_argument("--name", dest="full_name", help="Required when creating a new user")

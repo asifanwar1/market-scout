@@ -14,7 +14,6 @@ def ids(response) -> list[int]:
 
 @pytest.fixture()
 def leads(make_business):
-    """Six leads with deliberately different attributes."""
     now = datetime.now(UTC)
     return {
         "noor": make_business(
@@ -27,13 +26,11 @@ def leads(make_business):
             now=now - timedelta(days=2),
         ),
         "zahid": make_business("Zahid Battery House", hint="retailer", phones=["042 3577 9999"], now=now - timedelta(days=1)),
-        "ghost": make_business("Ghost Energy", hint="installer", now=now),                   # no contact details at all
+        "ghost": make_business("Ghost Energy", hint="installer", now=now),
         "karachi": make_business("Karachi Inverter Center", city="karachi", hint="retailer", phones=["0333 7654321"]),
         "quetta": make_business("Quetta Solar Works", city="quetta", hint="installer", emails=["hello@quettasolar.pk"]),
     }
 
-
-# ---- access -------------------------------------------------------------------------------
 
 def test_endpoints_require_a_login(client, leads):
     assert client.get(f"{BASE}/").status_code == 401
@@ -43,8 +40,6 @@ def test_endpoints_require_a_login(client, leads):
     assert client.get(f"{BASE}/assignees").status_code == 401
     assert client.post(f"{BASE}/{leads['noor'].id}/do-not-contact", json={}).status_code == 401
 
-
-# ---- list --------------------------------------------------------------------------------------
 
 def test_list_shows_the_row_fields_a_salesperson_needs(client, leads, seeded_profile, sales_user, admin_user, auth_headers):
     client.patch(f"{BASE}/{leads['noor'].id}", headers=auth_headers(admin_user), json={"assigned_to_id": sales_user.id})
@@ -56,8 +51,8 @@ def test_list_shows_the_row_fields_a_salesperson_needs(client, leads, seeded_pro
     assert noor["name"] == "Al Noor Solar Dealer" and noor["address"] == "12 Mall Road"
     assert (noor["city"], noor["province"]) == ("Lahore", "Punjab")
     assert (noor["segment_slug"], noor["segment_name"]) == ("dealer", "Dealer")
-    assert noor["profile_id"] == seeded_profile.id and noor["score"] == 100      # everything present + name match
-    assert noor["primary_phone"] == "+923004438424"                             # the WhatsApp-capable mobile, not the landline
+    assert noor["profile_id"] == seeded_profile.id and noor["score"] == 100
+    assert noor["primary_phone"] == "+923004438424"
     assert noor["whatsapp_likely"] is True and noor["email"] == "info@alnoor.pk"
     assert noor["website"] == "https://alnoor.pk" and noor["rating"] == 4.6 and noor["review_count"] == 20
     assert noor["lead_status"] == "new" and noor["sources"] == ["osm"]
@@ -76,7 +71,6 @@ def test_default_order_is_best_score_first_when_a_profile_is_chosen_else_newest(
     scores = [item["score"] for item in by_score.json()["data"]]
     assert scores == sorted(scores, reverse=True) and ids(by_score)[0] == leads["noor"].id
 
-    # Created in this order, but noor/bilal/zahid/ghost were given explicit first-seen times.
     newest = client.get(f"{BASE}/", headers=headers)
     assert ids(newest) == [leads[k].id for k in ("quetta", "karachi", "ghost", "zahid", "bilal", "noor")]
 
@@ -106,14 +100,12 @@ def test_pagination(client, leads, sales_user, auth_headers):
     assert client.get(f"{BASE}/?limit=101", headers=headers).status_code == 422
 
 
-# ---- filters -----------------------------------------------------------------------------------------
-
 @pytest.mark.parametrize(
     "query, expected",
     [
         ("has_phone=true", {"noor", "bilal", "zahid", "karachi"}),
         ("has_phone=false", {"ghost", "quetta"}),
-        ("whatsapp_likely=true", {"noor", "bilal", "karachi"}),            # mobiles only; zahid has a landline
+        ("whatsapp_likely=true", {"noor", "bilal", "karachi"}),
         ("whatsapp_likely=false", {"zahid", "ghost", "quetta"}),
         ("has_email=true", {"noor", "quetta"}),
         ("has_email=false", {"bilal", "zahid", "ghost", "karachi"}),
@@ -172,17 +164,17 @@ def test_assignment_filters(client, leads, sales_user, admin_user, auth_headers)
     "term, expected",
     [
         ("noor", {"noor"}),
-        ("BATTERY", {"zahid"}),                       # case-insensitive
-        ("mall road", {"noor"}),                      # address
-        ("0300 4438424", {"noor"}),                   # phone as written locally
+        ("BATTERY", {"zahid"}),
+        ("mall road", {"noor"}),
+        ("0300 4438424", {"noor"}),
         ("03004438424", {"noor"}),
-        ("300-443", {"noor"}),                        # partial
-        ("+92 300 4438424", {"noor"}),                # international form
-        ("3577", {"noor", "zahid"}),                  # two shops share this landline prefix
-        ("info@alnoor", {"noor"}),                    # email
+        ("300-443", {"noor"}),
+        ("+92 300 4438424", {"noor"}),
+        ("3577", {"noor", "zahid"}),
+        ("info@alnoor", {"noor"}),
         ("hello@quettasolar.pk", {"quetta"}),
         ("no such thing", set()),
-        ("   ", {"noor", "bilal", "zahid", "ghost", "karachi", "quetta"}),   # blank search means no search
+        ("   ", {"noor", "bilal", "zahid", "ghost", "karachi", "quetta"}),
     ],
 )
 def test_search_finds_names_addresses_phones_and_emails(client, leads, sales_user, auth_headers, term, expected):
@@ -197,8 +189,6 @@ def test_filters_combine(client, leads, seeded_profile, sales_user, auth_headers
     )
     assert set(ids(response)) == {leads["noor"].id}
 
-
-# ---- detail ----------------------------------------------------------------------------------------------
 
 def test_detail_shows_contacts_with_provenance_classification_and_sources(client, leads, seeded_profile, sales_user, auth_headers):
     body = client.get(f"{BASE}/{leads['noor'].id}", headers=auth_headers(sales_user)).json()
@@ -223,8 +213,6 @@ def test_detail_of_a_missing_business_is_404(client, sales_user, auth_headers):
     assert client.get(f"{BASE}/9999", headers=auth_headers(sales_user)).status_code == 404
 
 
-# ---- editing -------------------------------------------------------------------------------------------------
-
 def test_a_salesperson_updates_status_notes_and_assignee(client, leads, sales_user, admin_user, auth_headers):
     headers = auth_headers(sales_user)
     url = f"{BASE}/{leads['noor'].id}"
@@ -237,7 +225,6 @@ def test_a_salesperson_updates_status_notes_and_assignee(client, leads, sales_us
     assert body["assigned_to"] == {"id": admin_user.id, "full_name": "Admin User"}
     assert body["updated_at"] is not None
 
-    # Partial updates leave the other fields alone.
     only_status = client.patch(url, headers=headers, json={"lead_status": "interested"}).json()
     assert only_status["lead_status"] == "interested" and only_status["notes"] == "Called; wants a quote."
     assert only_status["assigned_to"]["id"] == admin_user.id
@@ -259,12 +246,9 @@ def test_update_validation(client, leads, sales_user, make_user, auth_headers):
     assert client.patch(url, headers=headers, json={"assigned_to_id": inactive.id}).status_code == 400
     assert client.patch(url, headers=headers, json={"notes": "x" * 5001}).status_code == 422
     assert client.patch(f"{BASE}/9999", headers=headers, json={"notes": "x"}).status_code == 404
-    # Read-only fields can't be smuggled in.
     client.patch(url, headers=headers, json={"name": "Hacked", "website": "https://evil.example"})
     assert client.get(url, headers=headers).json()["name"] == "Al Noor Solar Dealer"
 
-
-# ---- bulk -------------------------------------------------------------------------------------------------------
 
 def test_bulk_update_assigns_and_sets_status(client, leads, sales_user, auth_headers, db_session):
     headers = auth_headers(sales_user)
@@ -277,7 +261,6 @@ def test_bulk_update_assigns_and_sets_status(client, leads, sales_user, auth_hea
     assert {b.lead_status for b in db_session.query(Business).filter(Business.id.in_(chosen))} == {"contacted"}
     assert db_session.query(Business).filter(Business.id == leads["bilal"].id).one().lead_status == "new"
 
-    # null un-assigns; other fields untouched.
     client.post(f"{BASE}/bulk-update", headers=headers, json={"business_ids": chosen, "assigned_to_id": None})
     db_session.expire_all()
     rows = db_session.query(Business).filter(Business.id.in_(chosen)).all()
@@ -289,7 +272,7 @@ def test_bulk_update_ignores_unknown_ids_and_validates_input(client, leads, sale
     ok = client.post(f"{BASE}/bulk-update", headers=headers, json={"business_ids": [leads["noor"].id, leads["noor"].id, 9999], "lead_status": "quoted"})
     assert ok.json() == {"updated": 1}
 
-    assert client.post(f"{BASE}/bulk-update", headers=headers, json={"business_ids": [leads["noor"].id]}).status_code == 422       # nothing to change
+    assert client.post(f"{BASE}/bulk-update", headers=headers, json={"business_ids": [leads["noor"].id]}).status_code == 422
     assert client.post(f"{BASE}/bulk-update", headers=headers, json={"business_ids": [], "lead_status": "quoted"}).status_code == 422
     assert client.post(f"{BASE}/bulk-update", headers=headers, json={"business_ids": list(range(501)), "lead_status": "quoted"}).status_code == 422
     assert client.post(f"{BASE}/bulk-update", headers=headers, json={"business_ids": [1], "lead_status": None}).status_code == 400
@@ -304,8 +287,6 @@ def test_assignees_are_the_active_users_for_any_role(client, sales_user, admin_u
     assert {u["full_name"] for u in response.json()} == {"Admin User", "Sales User"}
 
 
-# ---- do-not-contact hides people everywhere --------------------------------------------------------------------------
-
 def test_a_blocked_business_disappears_from_every_leads_endpoint(client, leads, sales_user, auth_headers):
     headers = auth_headers(sales_user)
     blocked = leads["noor"]
@@ -313,7 +294,7 @@ def test_a_blocked_business_disappears_from_every_leads_endpoint(client, leads, 
     assert client.post(f"{BASE}/{blocked.id}/do-not-contact", headers=headers, json={"reason": "asked us to stop"}).status_code == 201
 
     everything = client.get(f"{BASE}/", headers=headers)
-    assert blocked.id not in ids(everything) and everything.json()["count"] == 5     # others are NOT hidden by the NULL columns
+    assert blocked.id not in ids(everything) and everything.json()["count"] == 5
     assert client.get(f"{BASE}/?search=noor", headers=headers).json()["count"] == 0
     assert client.get(f"{BASE}/?has_email=true", headers=headers).json()["count"] == 1
     assert client.get(f"{BASE}/{blocked.id}", headers=headers).status_code == 404

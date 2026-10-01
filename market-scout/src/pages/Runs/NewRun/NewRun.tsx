@@ -19,6 +19,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { APP_ROUTES } from "@/routes/appRoutes";
 import { formatCount, formatUsd } from "@/utils/format.utils";
+import { getUnavailableReason } from "@/utils/sources.utils";
 import EstimatePanel from "./EstimatePanel";
 import LocationPicker from "./LocationPicker";
 import { useNewRun } from "./NewRun.Container";
@@ -149,9 +150,7 @@ const NewRun = () => {
                                                 )}
                                             </span>
                                             <span className="block text-xs text-muted-foreground">
-                                                {source.is_available
-                                                    ? source.description
-                                                    : "Not available: switched off or missing its API key."}
+                                                {source.is_available ? source.description : getUnavailableReason(source)}
                                             </span>
                                         </Label>
                                     </div>

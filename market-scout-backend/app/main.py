@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,14 +12,17 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.core.config import settings
+from app.core.dependencies import get_db
 from app.core.limiter import limiter
-from app.dependencies import get_db
 from app.features.auth.router import router as auth_router
 from app.features.businesses.router import router as businesses_router
 from app.features.compliance.router import router as compliance_router
 from app.features.exports.router import router as exports_router
 from app.features.geographies.router import router as geographies_router
+from app.features.imports import service as imports_service
+from app.features.imports.router import router as imports_router
+from app.features.imports.worker import import_worker
 from app.features.insights.router import router as insights_router
 from app.features.profiles.router import router as profiles_router
 from app.features.runs import service as runs_service
@@ -28,8 +32,6 @@ from app.features.sheets.router import router as sheets_router
 from app.features.sources.router import router as sources_router
 from app.features.users.router import router as users_router
 
-# Uvicorn only configures its own loggers; without this the app's own messages (a failed sync, a
-# crashed run) would be dropped or shown without a time. A no-op if logging is already configured.
 logging.basicConfig(level=settings.LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 logger = logging.getLogger(__name__)
@@ -39,19 +41,18 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     if settings.RUN_WORKER_ENABLED:
         runs_service.start_worker()
+        imports_service.start_worker()
     yield
     worker.stop()
+    import_worker.stop()
 
 
 app = FastAPI(title="Market Scout API", version="0.1.0", lifespan=lifespan)
 
-# Rate-limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# Added last so it's outermost -- otherwise a 429 from SlowAPIMiddleware never
-# passes back through CORSMiddleware and browser clients can't read the response.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -63,11 +64,9 @@ app.add_middleware(
 
 @app.exception_handler(IntegrityError)
 async def integrity_error_handler(request: Request, exc: IntegrityError):
-    # A constraint the service layer didn't anticipate (a duplicate slipping past validation, a
-    # race). The client did something that conflicts with existing data; that isn't a server fault.
     logger.warning("Integrity error on %s %s: %s", request.method, request.url.path, exc.orig)
     return JSONResponse(
-        status_code=409,
+        status_code=HTTPStatus.CONFLICT,
         content={"detail": "This change conflicts with existing data. Refresh and try again."},
     )
 
@@ -75,9 +74,7 @@ async def integrity_error_handler(request: Request, exc: IntegrityError):
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled exception while processing %s %s", request.method, request.url.path)
-    response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
-    # Starlette runs this handler outside CORSMiddleware, so a 500 would carry no CORS headers and
-    # the browser would hide it behind an opaque "Network Error". Add them for allowed origins.
+    response = JSONResponse(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, content={"detail": "Internal server error"})
     origin = request.headers.get("origin")
     if origin and origin in settings.cors_origins_list:
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -97,6 +94,7 @@ app.include_router(compliance_router, prefix="/api/v1/compliance", tags=["Compli
 app.include_router(exports_router, prefix="/api/v1/exports", tags=["Exports"])
 app.include_router(sheets_router, prefix="/api/v1/sheets", tags=["Google Sheets"])
 app.include_router(insights_router, prefix="/api/v1/insights", tags=["Insights"])
+app.include_router(imports_router, prefix="/api/v1/imports", tags=["Imports"])
 
 
 @app.get("/")
@@ -106,10 +104,9 @@ def health_check():
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
-    """For a load balancer or uptime monitor: 200 only if the database answers."""
     try:
         db.execute(text("SELECT 1"))
     except Exception:
         logger.exception("Health check: the database did not answer")
-        return JSONResponse(status_code=503, content={"status": "unavailable", "database": "down"})
+        return JSONResponse(status_code=HTTPStatus.SERVICE_UNAVAILABLE, content={"status": "unavailable", "database": "down"})
     return {"status": "ok", "database": "ok"}

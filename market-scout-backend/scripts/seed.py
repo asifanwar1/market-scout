@@ -1,14 +1,7 @@
-"""Load the default data: Pakistan's geography and the solar profile.
-
-Safe to run repeatedly: anything that already exists (matched by slug) is left
-untouched, so edits made from the UI are never overwritten.
-
-    python -m scripts.seed
-"""
 from sqlalchemy.orm import Session
 
+from app.core.database import SessionLocal
 from app.core.utils import slugify
-from app.database import SessionLocal
 from app.features.geographies import service as geographies_service
 from app.features.geographies.models import Geography, GeographyLevel
 from app.features.geographies.schemas import GeographyCreate

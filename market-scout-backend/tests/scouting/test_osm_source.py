@@ -26,11 +26,7 @@ def make_source(handler, sleeps=None, clock=None, min_interval=3.0):
     )
 
 
-# ---- query building -------------------------------------------------------
-
 def test_builds_overpass_query_from_clauses_using_a_bounding_box_not_a_radius():
-    # Verified against the live server: a bbox answers in ~2s where the equivalent
-    # "around" radius query times out with a 504.
     ql = build_overpass_query(FILTER, LAHORE)
     assert "around" not in ql
     assert ql == (
@@ -51,7 +47,7 @@ def test_radius_square_is_centred_and_scaled_for_latitude():
     assert (south + north) / 2 == pytest.approx(LAHORE.latitude)
     assert (west + east) / 2 == pytest.approx(LAHORE.longitude)
     assert north - south == pytest.approx(2 * 20 / 111.32)
-    assert east - west > north - south          # a degree of longitude is shorter at 31°N
+    assert east - west > north - south
 
 
 @pytest.mark.parametrize(
@@ -62,8 +58,6 @@ def test_query_builder_refuses_unsafe_or_malformed_conditions(condition):
     with pytest.raises(ValueError):
         build_overpass_query({"clauses": [[condition]]}, LAHORE)
 
-
-# ---- parsing ---------------------------------------------------------------
 
 def test_parse_elements_maps_tags_to_a_raw_business():
     elements = [
@@ -76,9 +70,7 @@ def test_parse_elements_maps_tags_to_a_raw_business():
                 "addr:street": "Mall Road", "addr:city": "Lahore",
             },
         },
-        # A way reports its position as "center".
         {"type": "way", "id": 2, "center": {"lat": 31.6, "lon": 74.4}, "tags": {"name": "Bilal Traders", "shop": "trade"}},
-        # No name -> dropped.
         {"type": "node", "id": 3, "lat": 1, "lon": 1, "tags": {"shop": "electrical"}},
     ]
 
@@ -93,8 +85,6 @@ def test_parse_elements_maps_tags_to_a_raw_business():
     assert (second.external_id, second.latitude, second.longitude) == ("way/2", 31.6, 74.4)
     assert second.phones == [] and second.address is None
 
-
-# ---- search / HTTP behaviour ----------------------------------------------
 
 def test_search_posts_query_and_returns_businesses():
     seen = {}
@@ -180,13 +170,13 @@ def test_enforces_minimum_gap_between_requests():
     query = SearchQuery("x", LAHORE, osm_filter=FILTER)
 
     source.search(query)
-    assert sleeps == []                       # first request goes straight out
+    assert sleeps == []
     now[0] += 1.0
     source.search(query)
-    assert sleeps == [pytest.approx(2.0)]     # only 1s elapsed of the 3s gap
+    assert sleeps == [pytest.approx(2.0)]
     now[0] += 10.0
     source.search(query)
-    assert len(sleeps) == 1                   # gap already satisfied
+    assert len(sleeps) == 1
 
 
 def test_test_connection_reports_success_and_failure():
@@ -231,4 +221,4 @@ def test_a_refused_identification_is_explained_and_not_retried(status):
     with pytest.raises(SourceAuthError, match="SCOUT_CONTACT_EMAIL"):
         source.search(SearchQuery(text="solar", area=LAHORE, language="en", osm_filter=FILTER))
 
-    assert len(calls) == 1  # retrying the same identification can't succeed
+    assert len(calls) == 1

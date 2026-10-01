@@ -1,4 +1,4 @@
-import { CheckCircle2, KeyRound, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Database, KeyRound, Loader2, XCircle } from "lucide-react";
 import { useState } from "react";
 
 import type { TSource } from "@/api/services/sources/sources.response.types";
@@ -23,6 +23,9 @@ const availability = (source: TSource) => {
     if (source.is_available) return { label: "In use", className: "bg-success text-success-foreground" };
     if (source.requires_api_key && !source.has_key) {
         return { label: "Needs a key", className: "bg-warning text-warning-foreground" };
+    }
+    if (source.is_enabled && source.requires_dataset && !source.dataset_ready) {
+        return { label: "Needs a download", className: "bg-warning text-warning-foreground" };
     }
     return { label: "Switched off", className: "bg-muted text-muted-foreground" };
 };
@@ -98,8 +101,23 @@ const SourceCard = ({ source }: TSourceCardProps) => {
                 </div>
             </CardHeader>
 
-            {(source.requires_api_key || source.kind === "discovery") && (
+            {(source.requires_api_key || source.requires_dataset || source.kind === "discovery") && (
                 <CardContent className="space-y-5 border-t pt-5">
+                    {source.requires_dataset && (
+                        <div className="flex items-start gap-3 text-sm">
+                            <Database className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                            <div className="space-y-1">
+                                <p className="font-medium">Data on this computer</p>
+                                <p className={source.dataset_ready ? "text-muted-foreground" : "text-warning-foreground"}>{source.dataset_note}</p>
+                                {source.dataset_ready && (
+                                    <p className="text-xs text-muted-foreground">
+                                        To refresh it, run <span className="font-mono">python -m scripts.download_overture</span> in the backend folder.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {source.requires_api_key && (
                         <div className="space-y-3">
                             <div>

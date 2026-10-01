@@ -33,8 +33,6 @@ def created_profile(client, admin_user, auth_headers, payload):
     return response.json()
 
 
-# ---- create / read --------------------------------------------------------
-
 def test_create_profile_with_segments_and_terms(created_profile):
     assert created_profile["slug"] == "water-pumps"
     assert [s["slug"] for s in created_profile["segments"]] == ["dealer", "installer"]
@@ -45,7 +43,6 @@ def test_create_profile_with_segments_and_terms(created_profile):
     assert by_text["water pump dealer"]["osm_filter"]["clauses"] == [["shop=hardware", "name~pump|motor"]]
     assert by_text["pump installer"]["osm_filter"] is None
     assert by_text["pump ki dukan"]["language"] == "ur-roman"
-    # Defaults are filled in.
     assert created_profile["scoring_config"]["has_phone"] == 30
     assert created_profile["is_active"] is True
 
@@ -90,8 +87,6 @@ def test_get_missing_profile_returns_404(client, sales_user, auth_headers):
     assert client.get("/api/v1/profiles/9999", headers=auth_headers(sales_user)).status_code == 404
 
 
-# ---- validation -----------------------------------------------------------
-
 def test_term_referring_to_unknown_segment_is_rejected(client, admin_user, auth_headers, payload):
     payload["search_terms"][0]["segment_slug"] = "wholesaler"
     response = client.post("/api/v1/profiles/", headers=auth_headers(admin_user), json=payload)
@@ -113,11 +108,11 @@ def test_duplicate_segment_slugs_and_terms_are_rejected(client, admin_user, auth
 @pytest.mark.parametrize(
     "condition",
     [
-        'name~solar"];out;//',   # quote / statement injection into the Overpass query
-        "shop=hard;ware",        # semicolon
-        "no operator here",      # not key=value / key~regex
-        "name~(unclosed",        # invalid regex
-        "=value",                # missing key
+        'name~solar"];out;//',
+        "shop=hard;ware",
+        "no operator here",
+        "name~(unclosed",
+        "=value",
     ],
 )
 def test_unsafe_or_malformed_osm_conditions_are_rejected(client, admin_user, auth_headers, payload, condition):
@@ -143,8 +138,6 @@ def test_scoring_weights_are_bounded(client, admin_user, auth_headers, payload):
     payload["scoring_config"] = {"has_phone": 500}
     assert client.post("/api/v1/profiles/", headers=auth_headers(admin_user), json=payload).status_code == 422
 
-
-# ---- update (nested sync) -------------------------------------------------
 
 def test_update_scalars_keeps_slug_and_leaves_lists_alone(client, created_profile, admin_user, auth_headers):
     response = client.put(
@@ -177,7 +170,6 @@ def test_update_syncs_segments_by_id_and_cascades_removed_terms(client, created_
         headers=headers,
         json={
             "segments": [
-                # Keep "dealer" (same id, renamed), drop "installer", add "wholesaler".
                 {"id": dealer["id"], "name": "Authorised Dealer", "slug": "dealer"},
                 {"name": "Wholesaler"},
             ],
@@ -188,10 +180,9 @@ def test_update_syncs_segments_by_id_and_cascades_removed_terms(client, created_
 
     segments = {s["slug"]: s for s in body["segments"]}
     assert set(segments) == {"dealer", "wholesaler"}
-    assert segments["dealer"]["id"] == dealer["id"]          # identity preserved
+    assert segments["dealer"]["id"] == dealer["id"]
     assert segments["dealer"]["name"] == "Authorised Dealer"
-    assert "installer" not in segments                       # (its row id may be reused by SQLite, so check by slug)
-    # The installer's term went with it; the dealer's two terms survive.
+    assert "installer" not in segments
     assert sorted(t["text"] for t in body["search_terms"]) == ["pump ki dukan", "water pump dealer"]
 
 
@@ -217,16 +208,13 @@ def test_update_syncs_terms_and_can_target_new_segments(client, created_profile,
     assert set(terms) == {"submersible pump dealer", "pump shop"}
     assert terms["submersible pump dealer"]["id"] == kept["id"]
     assert terms["submersible pump dealer"]["is_active"] is False
-    assert terms["submersible pump dealer"]["osm_filter"] is None    # replaced by the payload's value
+    assert terms["submersible pump dealer"]["osm_filter"] is None
     assert terms["pump shop"]["segment_slug"] == "retailer"
 
 
 def test_replacing_segments_and_terms_without_ids_works_even_when_slugs_and_texts_repeat(
     client, created_profile, admin_user, auth_headers
 ):
-    """An id-less item is a new one. A client that lost its ids (a stale form) replaces the
-    segment/term with a fresh copy; the database must not trip over the unique (slug / text)
-    the old copy still held mid-update."""
     response = client.put(
         f"/api/v1/profiles/{created_profile['id']}",
         headers=auth_headers(admin_user),
@@ -241,9 +229,8 @@ def test_replacing_segments_and_terms_without_ids_works_even_when_slugs_and_text
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert [s["slug"] for s in body["segments"]] == ["dealer", "installer"]       # no duplicates left behind
+    assert [s["slug"] for s in body["segments"]] == ["dealer", "installer"]
     assert sorted(t["text"] for t in body["search_terms"]) == ["pump installer", "water pump dealer"]
-    # The replaced terms carry only what was sent: the old term's OSM filter is gone with it.
     assert all(t["osm_filter"] is None for t in body["search_terms"])
 
 
@@ -261,7 +248,6 @@ def test_update_rejects_items_from_other_profiles_and_unknown_segments(client, c
     unknown_slug = client.put(url, headers=headers, json={"search_terms": [{"text": "pump shop", "segment_slug": "nope"}]})
     assert unknown_slug.status_code == 400
 
-    # The failed updates changed nothing.
     assert len(client.get(url, headers=headers).json()["segments"]) == 2
 
 

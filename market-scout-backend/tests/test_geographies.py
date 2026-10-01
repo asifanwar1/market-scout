@@ -3,7 +3,6 @@ import pytest
 
 @pytest.fixture()
 def hierarchy(client, admin_user, auth_headers):
-    """Pakistan > Punjab > Lahore, created through the API."""
     headers = auth_headers(admin_user)
     country = client.post("/api/v1/geographies/", headers=headers, json={"name": "Pakistan", "level": "country"}).json()
     province = client.post(
@@ -53,7 +52,6 @@ def test_level_and_parent_rules_are_enforced(client, hierarchy, admin_user, auth
     country_id, province_id = hierarchy["country"]["id"], hierarchy["province"]["id"]
     city_area = {"latitude": 30.0, "longitude": 70.0, "radius_km": 10}
 
-    # A city must sit under a province, not directly under a country.
     wrong_parent = client.post(
         "/api/v1/geographies/", headers=headers,
         json={"name": "Multan", "level": "city", "parent_id": country_id, **city_area},
@@ -66,7 +64,6 @@ def test_level_and_parent_rules_are_enforced(client, hierarchy, admin_user, auth
     )
     assert missing_parent.status_code == 404
 
-    # Schema-level rules -> 422.
     no_parent = client.post("/api/v1/geographies/", headers=headers, json={"name": "Sindh", "level": "province"})
     country_with_parent = client.post(
         "/api/v1/geographies/", headers=headers, json={"name": "Nepal", "level": "country", "parent_id": country_id},
@@ -101,7 +98,6 @@ def test_duplicate_name_in_same_parent_conflicts_but_slug_stays_unique(client, h
     )
     assert duplicate.status_code == 409
 
-    # Same name under a different province is allowed and gets a distinct slug.
     sindh = client.post(
         "/api/v1/geographies/", headers=headers,
         json={"name": "Sindh", "level": "province", "parent_id": hierarchy["country"]["id"]},
@@ -151,7 +147,6 @@ def test_update_keeps_slug_and_protects_city_area(client, hierarchy, admin_user,
     assert renamed.json()["radius_km"] == 25
     assert renamed.json()["slug"] == "lahore"
 
-    # Explicitly clearing a city's coordinates would leave it unsearchable.
     cleared = client.put(f"/api/v1/geographies/{city_id}", headers=headers, json={"latitude": None})
     assert cleared.status_code == 400
 

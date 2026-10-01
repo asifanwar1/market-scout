@@ -50,10 +50,8 @@ def test_seed_solar_profile_is_complete_and_valid(db_session):
     assert [s.slug for s in profile.segments] == [
         "dealer", "importer", "wholesaler", "retailer", "installer", "contractor",
     ]
-    # Every segment is searched for, in both English and Roman Urdu overall.
     assert {t.segment.slug for t in profile.search_terms} == {s.slug for s in profile.segments}
     assert {"en", "ur-roman"} <= {t.language for t in profile.search_terms}
-    # OpenStreetMap needs a filter; Roman-Urdu terms are Places-only.
     assert any(t.osm_filter for t in profile.search_terms)
     assert all(t.osm_filter is None for t in profile.search_terms if t.language == "ur-roman")
 
@@ -67,8 +65,6 @@ def test_seed_solar_profile_is_idempotent(db_session):
     assert db_session.query(ProfileSearchTerm).count() == terms_before
 
 
-# Rough bounding boxes (south, north, west, east): wide enough for the real borders, tight enough
-# that a typo'd coordinate (a swapped latitude/longitude, a dropped digit) lands outside its province.
 PROVINCE_BOXES = {
     "Punjab": (27.7, 34.1, 69.3, 75.5),
     "Sindh": (23.6, 28.6, 66.6, 71.2),

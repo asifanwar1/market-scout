@@ -3,9 +3,10 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
 
+from app.core.constants import TOKEN_TYPE_ACCESS, TOKEN_TYPE_CLAIM
+from app.core.dependencies import get_db
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import decode_token
-from app.dependencies import get_db
 from app.features.users.models import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
@@ -22,8 +23,7 @@ def get_current_user(
     except JWTError:
         raise UnauthorizedException() from None
 
-    # A refresh token must never be accepted as an access token.
-    if payload.get("type") != "access":
+    if payload.get(TOKEN_TYPE_CLAIM) != TOKEN_TYPE_ACCESS:
         raise UnauthorizedException()
 
     try:

@@ -2,6 +2,7 @@ from typing import Optional
 
 from fastapi import Query
 
+from app.core.constants import SCORE_MAX, SCORE_MIN, SEARCH_MAX_LENGTH
 from app.features.businesses.models import LeadStatus
 from app.features.businesses.service import BusinessFilters
 
@@ -18,8 +19,8 @@ def business_filters(
     assigned_to_id: Optional[int] = Query(None),
     unassigned: bool = Query(False),
     source: Optional[str] = Query(None, description="Only businesses this source reported"),
-    min_score: Optional[int] = Query(None, ge=0, le=100),
-    search: Optional[str] = Query(None, max_length=100, description="Name, address, phone or email"),
+    min_score: Optional[int] = Query(None, ge=SCORE_MIN, le=SCORE_MAX),
+    search: Optional[str] = Query(None, max_length=SEARCH_MAX_LENGTH, description="Name, address, phone or email"),
 ) -> BusinessFilters:
     return BusinessFilters(
         profile_id=profile_id, segment=segment, geography_id=geography_id, has_phone=has_phone,

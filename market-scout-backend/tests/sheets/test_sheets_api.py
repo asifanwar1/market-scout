@@ -2,7 +2,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from app.config import settings
+from app.core.config import settings
 from app.features.exports.service import LEAD_HEADERS
 from app.features.sheets import service as sheets_service
 from app.features.sheets.models import AppSetting
@@ -25,7 +25,6 @@ def _clean_module_state():
 
 @pytest.fixture()
 def fake(monkeypatch, db_session, make_client, fake_google):
-    """Sheets calls go to the in-memory Google; background work runs inline on the test's session."""
     monkeypatch.setattr(sheets_service, "_build_client", make_client)
     monkeypatch.setattr(sheets_service, "_launch", lambda target: target())
 
@@ -62,8 +61,6 @@ def sheet_names(fake) -> list[str]:
     return [row[NAME] for row in fake.table(SPREADSHEET_ID, "Leads")[1:]]
 
 
-# ---- access ---------------------------------------------------------------------------------------
-
 def test_only_admins_can_use_the_sheets_settings(client, sales_user, auth_headers):
     sales = auth_headers(sales_user)
     assert client.get(f"{BASE}/").status_code == 401
@@ -75,8 +72,6 @@ def test_only_admins_can_use_the_sheets_settings(client, sales_user, auth_header
     ):
         assert call().status_code == 403
 
-
-# ---- settings -----------------------------------------------------------------------------------------
 
 def test_starts_unconfigured(client, admin):
     body = client.get(f"{BASE}/", headers=admin).json()
@@ -93,7 +88,7 @@ def test_saving_the_key_shows_the_address_to_share_with_but_never_the_key(client
     assert body["has_credentials"] is True and body["credentials_source"] == "saved"
     assert body["service_account_email"] == CLIENT_EMAIL
     assert "PRIVATE KEY" not in response.text
-    assert body["is_configured"] is False  # still needs the sheet
+    assert body["is_configured"] is False
 
 
 def test_the_key_is_stored_encrypted(client, admin, service_account_json, db_session):
@@ -110,7 +105,7 @@ def test_a_bad_key_is_rejected_and_saves_nothing(client, admin):
     assert response.status_code == 400 and "not a service-account key" in response.json()["detail"]
 
     body = client.get(f"{BASE}/", headers=admin).json()
-    assert body["has_credentials"] is False and body["spreadsheet_id"] is None  # the sheet wasn't half-saved either
+    assert body["has_credentials"] is False and body["spreadsheet_id"] is None
 
 
 @pytest.mark.parametrize(
@@ -171,8 +166,6 @@ def test_switching_to_a_different_sheet_forgets_the_old_outcome(client, admin, c
     assert body["last_sync_ok"] is None and body["last_synced_at"] is None and body["last_row_count"] is None
 
 
-# ---- testing the connection ------------------------------------------------------------------------
-
 def test_test_connection_needs_the_key_and_the_sheet_first(client, admin, service_account_json):
     assert client.post(f"{BASE}/test", headers=admin).status_code == 400
     client.put(f"{BASE}/", headers=admin, json={"credentials_json": service_account_json})
@@ -191,8 +184,6 @@ def test_test_connection_tells_you_to_share_the_sheet(client, admin, connected):
     result = client.post(f"{BASE}/test", headers=admin).json()
     assert result["ok"] is False and CLIENT_EMAIL in result["message"]
 
-
-# ---- syncing ------------------------------------------------------------------------------------------------
 
 def test_sync_needs_a_configured_sheet(client, admin):
     assert client.post(f"{BASE}/sync", headers=admin).status_code == 400
@@ -250,7 +241,7 @@ def test_a_lead_blocked_after_a_sync_disappears_on_the_next(client, admin, conne
     client.post(f"{BASE}/sync", headers=admin)
 
     assert "Al Noor Solar Dealer" not in sheet_names(connected)
-    assert len(connected.table(SPREADSHEET_ID, "Leads")) == 3  # header + the other two, no stale row left
+    assert len(connected.table(SPREADSHEET_ID, "Leads")) == 3
 
 
 def test_a_failed_sync_records_why_and_the_next_good_one_clears_it(client, admin, connected, leads):
@@ -310,22 +301,20 @@ def test_refuses_a_worksheet_that_already_holds_other_data(client, admin, connec
     assert "already exists" in client.get(f"{BASE}/", headers=admin).json()["last_error"]
 
 
-# ---- keeping it live (automatic refresh) ------------------------------------------------------------
-
 def test_an_unchanged_sheet_is_not_rewritten_by_the_automatic_refresh(client, admin, connected, leads, db_session):
     client.post(f"{BASE}/sync", headers=admin)
     calls_after_first = len(connected.calls)
 
     sheets_service.sync_now(db_session, force=False)
 
-    assert len(connected.calls) == calls_after_first  # not even a request to Google
+    assert len(connected.calls) == calls_after_first
 
 
 def test_a_manual_sync_always_rewrites_even_if_nothing_changed(client, admin, connected, leads):
     client.post(f"{BASE}/sync", headers=admin)
     calls_after_first = len(connected.calls)
     client.post(f"{BASE}/sync", headers=admin)
-    assert len(connected.calls) > calls_after_first  # e.g. someone emptied the sheet by hand and wants it back
+    assert len(connected.calls) > calls_after_first
 
 
 def test_the_automatic_refresh_picks_up_edits_made_in_the_app(client, admin, connected, leads, db_session):
@@ -379,7 +368,7 @@ def test_a_change_after_the_refresh_starts_schedules_the_next_one(monkeypatch, c
     monkeypatch.setattr(sheets_service, "_schedule", lambda delay, target: scheduled.append(target) or object())
 
     sheets_service.notify_changed()
-    scheduled[0]()          # the timer fires
+    scheduled[0]()
     sheets_service.notify_changed()
 
     assert len(scheduled) == 2
@@ -399,7 +388,7 @@ def test_notify_never_raises_even_if_scheduling_fails(monkeypatch):
 
     monkeypatch.setattr(settings, "SHEETS_AUTO_SYNC_DELAY_SECONDS", 20.0)
     monkeypatch.setattr(sheets_service, "_schedule", broken)
-    sheets_service.notify_changed()  # must not propagate into a request or a run
+    sheets_service.notify_changed()
 
 
 @pytest.fixture()

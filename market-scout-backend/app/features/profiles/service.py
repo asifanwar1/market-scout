@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.core.constants import FIRST_PAGE
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.core.utils import slugify
 from app.features.profiles.models import Profile, ProfileSearchTerm, ProfileSegment
@@ -11,6 +12,9 @@ from app.features.profiles.schemas import (
     SegmentCreate,
     SegmentUpsert,
 )
+
+DEFAULT_LIMIT = 10
+
 
 
 def _generate_unique_slug(db: Session, name: str) -> str:
@@ -56,14 +60,10 @@ def _sync_segments(db: Session, profile: Profile, segments_in: list[SegmentUpser
     if unknown:
         raise BadRequestException(f"Segment {min(unknown)} does not belong to this profile")
 
-    # Deletions are flushed before anything is inserted: the database checks (profile, slug)
-    # uniqueness statement by statement, so a replacement segment reusing the slug of one that
-    # is being dropped would otherwise collide with it.
     for segment_id, segment in existing.items():
         if segment_id not in wanted_ids:
             profile.segments.remove(segment)
     db.flush()
-    # Removing a segment cascades to its search terms; reload the stale in-memory list.
     db.expire(profile, ["search_terms"])
 
     for segment_in in segments_in:
@@ -89,7 +89,6 @@ def _sync_search_terms(db: Session, profile: Profile, terms_in: list[SearchTermU
         if term_in.segment_slug not in segments_by_slug:
             raise BadRequestException(f"Unknown segment '{term_in.segment_slug}'")
 
-    # Same reasoning as segments: drop first, flush, then add (terms are unique per segment+text+language).
     for term_id, term in existing.items():
         if term_id not in wanted_ids:
             profile.search_terms.remove(term)
@@ -108,8 +107,8 @@ def _sync_search_terms(db: Session, profile: Profile, terms_in: list[SearchTermU
 
 def get_profiles(
     db: Session,
-    page: int = 1,
-    limit: int = 10,
+    page: int = FIRST_PAGE,
+    limit: int = DEFAULT_LIMIT,
     search: str | None = None,
     is_active: bool | None = None,
 ) -> dict:
@@ -172,8 +171,6 @@ def update_profile(db: Session, profile_id: int, profile_in: ProfileUpdate) -> P
     if update_data.get("scoring_config") is not None:
         profile.scoring_config = update_data["scoring_config"]
 
-    # The slug is deliberately not regenerated on rename: it is the stable identifier
-    # other data and seed scripts refer to.
     if profile_in.segments is not None:
         _sync_segments(db, profile, profile_in.segments)
     if profile_in.search_terms is not None:

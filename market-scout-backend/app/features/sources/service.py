@@ -1,8 +1,9 @@
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.core.config import settings
 from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.scouting import overture_store
 from app.core.scouting.sources import google_places
 from app.core.scouting.sources.base import Source
 from app.core.scouting.sources.registry import (
@@ -16,7 +17,6 @@ from app.core.scouting.sources.registry import (
 from app.features.sources.models import DataSource
 from app.features.sources.schemas import SourceUpdate
 
-# Sources whose key may also come from the environment (used when none is saved in the UI).
 _ENV_KEYS = {google_places.SOURCE_KEY: lambda: settings.GOOGLE_PLACES_API_KEY}
 
 
@@ -24,8 +24,6 @@ _PLACEHOLDER_DOMAINS = ("example.com", "example.org", "example.net", "test", "in
 
 
 def user_agent() -> str:
-    # The free public services we call ask clients to say who they are. A placeholder address is
-    # worse than none: Overpass answers it with "406 Not Acceptable".
     email = settings.SCOUT_CONTACT_EMAIL.strip()
     domain = email.rpartition("@")[2].lower()
     is_placeholder = any(domain == d or domain.endswith(f".{d}") for d in _PLACEHOLDER_DOMAINS)
@@ -54,13 +52,10 @@ def _ensure_rows(db: Session) -> dict[str, DataSource]:
 
 
 def ensure_sources(db: Session) -> None:
-    """Create the on/off row for every catalogue source. Done once at start-up so that reading the
-    Sources screen never has to write."""
     _ensure_rows(db)
 
 
 def _saved_key(row: DataSource) -> tuple[str | None, bool]:
-    """(plaintext key, needs_reentry)."""
     if not row.encrypted_api_key:
         return None, False
     plaintext = decrypt_secret(row.encrypted_api_key)
@@ -73,7 +68,6 @@ def _env_key(key: str) -> str | None:
 
 
 def _resolve_key(row: DataSource) -> tuple[str | None, str | None, bool]:
-    """(key, where it came from, saved-key-unreadable)."""
     saved, needs_reentry = _saved_key(row)
     if saved:
         return saved, "saved", False
@@ -83,9 +77,20 @@ def _resolve_key(row: DataSource) -> tuple[str | None, str | None, bool]:
     return None, None, needs_reentry
 
 
+def _dataset_status(info: SourceInfo) -> tuple[bool, str | None]:
+    if not info.requires_dataset:
+        return True, None
+    try:
+        found = overture_store.read_info(settings.OVERTURE_DB_PATH)
+    except overture_store.StoreError as exc:
+        return False, f"{exc} In the backend folder run: python -m scripts.download_overture"
+    return True, f"Release {found.release} on this computer: {found.places:,} places in Pakistan."
+
+
 def _to_view(info: SourceInfo, row: DataSource) -> dict:
     key, key_source, needs_reentry = _resolve_key(row)
     has_key = key is not None
+    dataset_ready, dataset_note = _dataset_status(info)
     return {
         "key": info.key,
         "name": info.name,
@@ -98,7 +103,10 @@ def _to_view(info: SourceInfo, row: DataSource) -> dict:
         "key_hint": mask_secret(key) if key else None,
         "key_source": key_source,
         "key_needs_reentry": needs_reentry,
-        "is_available": row.is_enabled and (has_key or not info.requires_api_key),
+        "requires_dataset": info.requires_dataset,
+        "dataset_ready": dataset_ready,
+        "dataset_note": dataset_note,
+        "is_available": row.is_enabled and (has_key or not info.requires_api_key) and dataset_ready,
     }
 
 
@@ -123,7 +131,6 @@ def update_source(db: Session, key: str, update_in: SourceUpdate) -> dict:
     if (new_key or clear) and not info.requires_api_key:
         raise BadRequestException("This source doesn't use an API key")
 
-    # Work out the resulting state first so a rejected change leaves nothing half-applied.
     saved_after = None if clear else (new_key.strip() if new_key else _saved_key(row)[0])
     has_key_after = bool(saved_after or _env_key(key))
     enabled_after = data["is_enabled"] if data.get("is_enabled") is not None else row.is_enabled
@@ -131,7 +138,7 @@ def update_source(db: Session, key: str, update_in: SourceUpdate) -> dict:
     if info.requires_api_key and enabled_after and not has_key_after:
         if data.get("is_enabled") is True:
             raise BadRequestException("Add an API key before enabling this source")
-        enabled_after = False  # its key was just removed; don't leave it switched on
+        enabled_after = False
 
     if new_key:
         row.encrypted_api_key = encrypt_secret(new_key.strip())
@@ -160,7 +167,6 @@ def get_available_discovery_keys(db: Session) -> list[str]:
 
 
 def build_sources(db: Session, keys: list[str]) -> dict[str, Source]:
-    """Live source objects for the given (available) discovery keys."""
     sources: dict[str, Source] = {}
     for key in keys:
         sources[key] = build_source(
@@ -169,6 +175,8 @@ def build_sources(db: Session, keys: list[str]) -> dict[str, Source]:
             user_agent=user_agent(),
             overpass_url=settings.OVERPASS_URL,
             overpass_min_interval_s=settings.OVERPASS_MIN_INTERVAL_SECONDS,
+            overture_path=settings.OVERTURE_DB_PATH,
+            overture_min_confidence=settings.OVERTURE_MIN_CONFIDENCE,
         )
     return sources
 

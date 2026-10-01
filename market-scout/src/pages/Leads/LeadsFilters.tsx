@@ -20,6 +20,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { LEAD_STATUS_OPTIONS } from "@/constants";
+import { getSourceLabel } from "@/utils/format.utils";
 import { useStore } from "@/store";
 import { ALL, UNASSIGNED, type TLeadsPage } from "./Leads.Container";
 
@@ -42,6 +43,7 @@ const LeadsFilters = ({ page }: TLeadsFiltersProps) => {
         profile,
         geographyTree,
         assignees,
+        sources,
         changeFilters,
         clearFilters,
         activeFilterCount,
@@ -181,6 +183,28 @@ const LeadsFilters = ({ page }: TLeadsFiltersProps) => {
                         ))}
                     </SelectContent>
                 </Select>
+
+                {(sources.length > 1 || state.source) && (
+                    <Select
+                        value={state.source ?? ALL}
+                        onValueChange={(value) => changeFilters({ source: value === ALL ? null : value })}
+                    >
+                        <SelectTrigger className="w-52" aria-label="Found by">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value={ALL}>Found by anyone</SelectItem>
+                            {state.source && !sources.some((source) => source.key === state.source) && (
+                                <SelectItem value={state.source}>{getSourceLabel(state.source)}</SelectItem>
+                            )}
+                            {sources.map((source) => (
+                                <SelectItem key={source.key} value={source.key}>
+                                    {source.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                )}
 
                 <Popover>
                     <PopoverTrigger asChild>

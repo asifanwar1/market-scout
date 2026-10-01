@@ -2,11 +2,10 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
-# Import all models so their tables are registered with Base.metadata
 import app.models  # noqa: F401
 from alembic import context
-from app.config import settings
-from app.database import Base
+from app.core.config import settings
+from app.core.database import Base
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
@@ -37,7 +36,6 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        # SQLite can't ALTER most things in place; batch mode recreates the table.
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

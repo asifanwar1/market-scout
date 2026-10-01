@@ -6,8 +6,6 @@ def _login(client, email: str, password: str = DEFAULT_PASSWORD):
     return client.post("/api/v1/auth/login", json={"email": email, "password": password})
 
 
-# ---- login / refresh / me -------------------------------------------------
-
 def test_login_success_returns_tokens(client, sales_user):
     response = _login(client, sales_user.email)
     assert response.status_code == 200
@@ -64,8 +62,6 @@ def test_garbage_token_is_rejected(client):
     assert response.status_code == 401
 
 
-# ---- logout-all / change-password ----------------------------------------
-
 def test_logout_all_invalidates_existing_tokens(client, sales_user):
     tokens = _login(client, sales_user.email).json()
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
@@ -113,8 +109,6 @@ def test_login_is_rate_limited(client, sales_user):
     assert statuses[:10] == [401] * 10
     assert 429 in statuses[10:]
 
-
-# ---- user management (admin only) ----------------------------------------
 
 def test_sales_cannot_access_user_management(client, sales_user, auth_headers):
     headers = auth_headers(sales_user)
@@ -175,7 +169,6 @@ def test_admin_update_user_role_deactivation_and_session_revocation(client, admi
     )
     assert response.status_code == 200
     assert response.json()["is_active"] is False
-    # The old token stops working immediately, not at expiry.
     assert client.get("/api/v1/auth/me", headers=sales_headers).status_code == 401
 
 
