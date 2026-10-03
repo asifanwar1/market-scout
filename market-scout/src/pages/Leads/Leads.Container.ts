@@ -9,7 +9,7 @@ import {
 } from "nuqs";
 import { useState, type ChangeEvent } from "react";
 
-import { ExportLeadsCsv } from "@/api";
+import { ExportLeadsCsv, ExportLeadsXlsx } from "@/api";
 import type {
     TBusinessFilters,
     TBusinessSort,
@@ -20,7 +20,7 @@ import type { TBusinessListItem } from "@/api/services/businesses/businesses.res
 import { FIRST_PAGE, LEAD_STATUS, SEARCH_DEBOUNCE_MS, USER_ROLE } from "@/constants";
 import { GENERIC_ERROR_MESSAGE } from "@/constants/Validation-messages.constants";
 import type { LeadStatus } from "@/constants/lead-status.constants";
-import { useBulkUpdateBusinesses, useGetAssignees, useGetBusinesses } from "@/hooks/api/businesses.queries";
+import { useBulkDeleteBusinesses, useBulkUpdateBusinesses, useDeleteBusiness, useGetAssignees, useGetBusinesses } from "@/hooks/api/businesses.queries";
 import { useGetGeographyTree, useGetProfile, useGetProfiles } from "@/hooks/api/catalog.queries";
 import { useGetSourcesQuality } from "@/hooks/api/insights.queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -30,16 +30,20 @@ import { getBlobErrorMessage, saveBlob, todayStamp } from "@/utils/download.util
 import { pluralize } from "@/utils/format.utils";
 import { paginationUrlState } from "@/utils/listUrlState";
 import {
+    BULK_DELETE_DESCRIPTION_SUFFIX,
+    DELETE_LEAD_DESCRIPTION_SUFFIX,
     DIRECTION_VALUES,
     EMPTY_KIND,
-    EXPORT_FILE_EXTENSION,
     EXPORT_FILE_PREFIX,
+    EXPORT_FORMAT,
+    EXPORT_OPTIONS,
     LEAD_SORT,
     SORT_DIRECTION,
     SORT_VALUES,
     UNASSIGNED,
 } from "./Leads.constants";
-import type { TBulkChange, TEmptyKind } from "./Leads.types";
+import { getLeadColumns } from "./LeadsTable.columns";
+import type { TBulkChange, TEmptyKind, TExportFormat } from "./Leads.types";
 
 const STATUSES = Object.values(LEAD_STATUS) as [LeadStatus, ...LeadStatus[]];
 
@@ -86,6 +90,8 @@ export const useLeadsPage = () => {
 
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [isExporting, setIsExporting] = useState(false);
+    const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+    const [leadToDelete, setLeadToDelete] = useState<TBusinessListItem | null>(null);
 
     const { data: profilesData, isPending: isProfilesLoading } = useGetProfiles();
     const profiles = profilesData?.data ?? [];
@@ -125,8 +131,11 @@ export const useLeadsPage = () => {
 
     const { data, isPending, isFetching } = useGetBusinesses(params, hasActiveProfile);
     const { mutateAsync: bulkUpdate, isPending: isBulkUpdating } = useBulkUpdateBusinesses();
+    const { mutateAsync: bulkDelete, isPending: isBulkDeleting } = useBulkDeleteBusinesses();
+    const { mutateAsync: deleteBusiness, isPending: isDeleting } = useDeleteBusiness();
 
     const leads = data?.data ?? [];
+    const columns = getLeadColumns(isAdmin, setLeadToDelete);
     const total = data?.count ?? 0;
     const hasLeads = total > 0;
     const sources = sourceQuality?.data ?? [];
@@ -140,6 +149,9 @@ export const useLeadsPage = () => {
     const leadId = state.lead;
     const searchText = state.q;
     const isExportDisabled = !hasLeads || isExporting;
+    const isDeleteOpen = leadToDelete !== null;
+    const deleteDescription = `${leadToDelete?.name ?? ""} ${DELETE_LEAD_DESCRIPTION_SUFFIX}`;
+    const bulkDeleteDescription = `${pluralize(selectedIds.length, "selected lead", "selected leads")} ${BULK_DELETE_DESCRIPTION_SUFFIX}`;
     const tableClassName = isFetching && !isLeadsLoading ? "opacity-70 transition-opacity" : "transition-opacity";
 
     const activeFilterCount = [
@@ -193,11 +205,13 @@ export const useLeadsPage = () => {
         changeFilters(CLEARED_FILTERS);
     };
 
-    const exportLeads = async () => {
+    const exportLeads = async (format: TExportFormat) => {
+        const option = EXPORT_OPTIONS.find((candidate) => candidate.format === format) ?? EXPORT_OPTIONS[0];
+        const download = format === EXPORT_FORMAT.XLSX ? ExportLeadsXlsx : ExportLeadsCsv;
         setIsExporting(true);
         try {
-            const blob = await ExportLeadsCsv({ ...filters, sort, direction });
-            saveBlob(blob, `${EXPORT_FILE_PREFIX}${todayStamp()}${EXPORT_FILE_EXTENSION}`);
+            const blob = await download({ ...filters, sort, direction });
+            saveBlob(blob, `${EXPORT_FILE_PREFIX}${todayStamp()}${option.extension}`);
             showToast.success(`Exported ${pluralize(total, "lead", "leads")}`);
         } catch (error) {
             showToast.error(error instanceof Error ? await getBlobErrorMessage(error) : GENERIC_ERROR_MESSAGE);
@@ -210,6 +224,35 @@ export const useLeadsPage = () => {
         const { updated } = await bulkUpdate({ business_ids: selectedIds, ...change });
         showToast.success(`${label}: ${pluralize(updated, "lead", "leads")} updated`);
         setRowSelection({});
+    };
+
+    const cancelDelete = () => {
+        setLeadToDelete(null);
+    };
+
+    const confirmDelete = async () => {
+        if (!leadToDelete) return;
+        await deleteBusiness(leadToDelete.id);
+        showToast.success(`${leadToDelete.name} deleted`);
+        setRowSelection({});
+        if (leadId === leadToDelete.id) void setState({ lead: null });
+        setLeadToDelete(null);
+    };
+
+    const openBulkDelete = () => {
+        setIsBulkDeleteOpen(true);
+    };
+
+    const cancelBulkDelete = () => {
+        setIsBulkDeleteOpen(false);
+    };
+
+    const confirmBulkDelete = async () => {
+        const { deleted } = await bulkDelete({ business_ids: selectedIds });
+        showToast.success(`${pluralize(deleted, "lead", "leads")} deleted`);
+        if (leadId !== null && selectedIds.includes(leadId)) void setState({ lead: null });
+        setRowSelection({});
+        setIsBulkDeleteOpen(false);
     };
 
     const getLeadRowId = (lead: TBusinessListItem) => String(lead.id);
@@ -239,6 +282,7 @@ export const useLeadsPage = () => {
         geographyTree,
         assignees,
         sources,
+        columns,
         leads,
         total,
         hasLeads,
@@ -265,6 +309,17 @@ export const useLeadsPage = () => {
         exportLeads,
         isExporting,
         isExportDisabled,
+        isDeleteOpen,
+        isDeleting,
+        deleteDescription,
+        cancelDelete,
+        confirmDelete,
+        isBulkDeleteOpen,
+        isBulkDeleting,
+        bulkDeleteDescription,
+        openBulkDelete,
+        cancelBulkDelete,
+        confirmBulkDelete,
         getLeadRowId,
         openLeadRow,
         openLead,

@@ -34,6 +34,8 @@ ADMIN_ONLY = {
     ("POST", "/api/v1/profiles/"),
     ("PUT", "/api/v1/profiles/{profile_id}"),
     ("DELETE", "/api/v1/profiles/{profile_id}"),
+    ("DELETE", "/api/v1/businesses/{business_id}"),
+    ("POST", "/api/v1/businesses/bulk-delete"),
     ("GET", "/api/v1/sources/"),
     ("GET", "/api/v1/sources/{key}"),
     ("PUT", "/api/v1/sources/{key}"),
@@ -139,7 +141,7 @@ def test_no_route_crashes_on_unknown_ids_or_garbage_bodies(client, admin_user, a
 ])
 def test_bad_query_parameters_are_rejected_politely(client, admin_user, auth_headers, query):
     headers = auth_headers(admin_user)
-    for path in ("/api/v1/businesses/", "/api/v1/exports/leads.csv", "/api/v1/insights/gaps", "/api/v1/insights/timeline",
+    for path in ("/api/v1/businesses/", "/api/v1/exports/leads.csv", "/api/v1/exports/leads.xlsx", "/api/v1/insights/gaps", "/api/v1/insights/timeline",
                  "/api/v1/runs/", "/api/v1/users/", "/api/v1/compliance/do-not-contact"):
         response = client.get(f"{path}?{query}", headers=headers)
         assert response.status_code < 500, f"GET {path}?{query} -> {response.status_code}"

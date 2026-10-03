@@ -14,6 +14,21 @@ from app.features.exports import service
 
 router = APIRouter()
 
+CSV_MEDIA_TYPE = "text/csv; charset=utf-8"
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _download(file, count: int, media_type: str, extension: str) -> StreamingResponse:
+    return StreamingResponse(
+        service.iter_file(file),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="market-scout-leads-{date.today().isoformat()}.{extension}"',
+            "X-Row-Count": str(count),
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Row-Count",
+        },
+    )
+
 
 @router.get("/leads.csv")
 def export_leads_csv(
@@ -24,12 +39,16 @@ def export_leads_csv(
     _=Depends(get_current_user),
 ):
     file, count = service.write_leads_csv(db, filters, sort=sort, direction=direction)
-    return StreamingResponse(
-        service.iter_file(file),
-        media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="market-scout-leads-{date.today().isoformat()}.csv"',
-            "X-Row-Count": str(count),
-            "Access-Control-Expose-Headers": "Content-Disposition, X-Row-Count",
-        },
-    )
+    return _download(file, count, CSV_MEDIA_TYPE, "csv")
+
+
+@router.get("/leads.xlsx")
+def export_leads_xlsx(
+    filters: BusinessFilters = Depends(business_filters),
+    sort: Optional[BusinessSort] = Query(None),
+    direction: Optional[SortDirection] = Query(None),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    file, count = service.write_leads_xlsx(db, filters, sort=sort, direction=direction)
+    return _download(file, count, XLSX_MEDIA_TYPE, "xlsx")

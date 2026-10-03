@@ -2,10 +2,12 @@ import csv
 import io
 
 import pytest
+from openpyxl import load_workbook
 
 from app.features.exports.service import LEAD_HEADERS, csv_safe
 
 URL = "/api/v1/exports/leads.csv"
+XLSX_URL = "/api/v1/exports/leads.xlsx"
 LEADS = "/api/v1/businesses"
 COLUMN = {name: index for index, name in enumerate(LEAD_HEADERS)}
 
@@ -169,3 +171,77 @@ def test_the_export_is_one_row_per_lead_however_many_contacts_it_has(client, lea
 )
 def test_csv_safe(value, expected):
     assert csv_safe(value) == expected
+
+
+def sheet_rows(response) -> list[list]:
+    workbook = load_workbook(io.BytesIO(response.content))
+    return [[cell.value for cell in row] for row in workbook["Leads"].iter_rows()]
+
+
+def test_excel_export_needs_a_login(client, leads):
+    assert client.get(XLSX_URL).status_code == 401
+
+
+def test_sales_can_export_to_excel(client, leads, sales_user, auth_headers):
+    response = client.get(XLSX_URL, headers=auth_headers(sales_user))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    assert response.headers["content-disposition"].startswith('attachment; filename="market-scout-leads-')
+    assert response.headers["content-disposition"].endswith('.xlsx"')
+    assert response.headers["x-row-count"] == "3"
+
+
+def test_excel_export_has_the_same_rows_as_the_csv(client, leads, seeded_profile, sales_user, auth_headers):
+    headers = auth_headers(sales_user)
+    csv_rows = parse(client.get(URL, headers=headers))
+    excel_rows = sheet_rows(client.get(XLSX_URL, headers=headers))
+
+    assert excel_rows[0] == LEAD_HEADERS
+    assert len(excel_rows) == len(csv_rows) == 4
+    noor = next(row for row in excel_rows[1:] if row[COLUMN["Name"]] == "Al Noor Solar Dealer")
+    assert noor[COLUMN["Lead ID"]] == leads["noor"].id
+    assert noor[COLUMN["Score"]] == 100
+    assert noor[COLUMN["Phone numbers"]] == "+923004438424; +924235771769"
+    assert noor[COLUMN["Rating"]] == 4.6
+
+
+def test_excel_export_follows_the_same_filters_as_the_list(client, leads, sales_user, auth_headers):
+    rows = sheet_rows(client.get(f"{XLSX_URL}?has_email=true", headers=auth_headers(sales_user)))
+
+    assert {row[COLUMN["Name"]] for row in rows[1:]} == {"Al Noor Solar Dealer", "Quetta Solar Works"}
+
+
+def test_a_business_named_like_a_formula_is_stored_as_text_in_excel(client, make_business, sales_user, auth_headers):
+    make_business('=HYPERLINK("http://evil.example","Click")', phones=["0300 1234567"], address="@SUM(A1)")
+
+    response = client.get(XLSX_URL, headers=auth_headers(sales_user))
+    sheet = load_workbook(io.BytesIO(response.content))["Leads"]
+    name, address = sheet.cell(2, COLUMN["Name"] + 1), sheet.cell(2, COLUMN["Address"] + 1)
+
+    assert name.data_type == "s" and name.value == '=HYPERLINK("http://evil.example","Click")'
+    assert address.data_type == "s" and address.value == "@SUM(A1)"
+
+
+def test_urdu_names_and_control_characters_survive_in_excel(client, make_business, sales_user, auth_headers):
+    make_business("سولر پاور ہاؤس Café Élan", phones=["0300 1234567"])
+
+    rows = sheet_rows(client.get(XLSX_URL, headers=auth_headers(sales_user)))
+
+    assert rows[1][COLUMN["Name"]] == "سولر پاور ہاؤس Café Élan"
+
+
+def test_a_filter_that_matches_nothing_is_a_header_only_sheet(client, leads, sales_user, auth_headers):
+    response = client.get(f"{XLSX_URL}?search=zzzzz", headers=auth_headers(sales_user))
+
+    assert sheet_rows(response) == [LEAD_HEADERS]
+    assert response.headers["x-row-count"] == "0"
+
+
+def test_someone_on_do_not_contact_is_never_exported_to_excel(client, leads, sales_user, auth_headers):
+    headers = auth_headers(sales_user)
+    client.post(f"{LEADS}/{leads['noor'].id}/do-not-contact", headers=headers, json={})
+
+    names = {row[COLUMN["Name"]] for row in sheet_rows(client.get(XLSX_URL, headers=headers))[1:]}
+
+    assert "Al Noor Solar Dealer" not in names

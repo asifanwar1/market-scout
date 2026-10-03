@@ -8,6 +8,11 @@ from collections.abc import Iterator, Sequence
 from datetime import datetime
 from typing import IO
 
+from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from app.core.constants import BYTES_PER_MEGABYTE
@@ -36,6 +41,14 @@ LEAD_HEADERS: list[str] = [
 _PHONE_KINDS = (ContactKind.PHONE.value, ContactKind.WHATSAPP.value)
 _NON_DIGITS = re.compile(r"\D")
 _BOM = "﻿"
+
+XLSX_SHEET_TITLE = "Leads"
+XLSX_DEFAULT_COLUMN_WIDTH = 16
+XLSX_COLUMN_WIDTHS: dict[str, int] = {
+    "Name": 32, "Industry": 18, "Notes": 40, "Phone numbers": 28, "WhatsApp chat": 28, "Email": 30,
+    "Website": 30, "Facebook": 28, "Instagram": 28, "Address": 40, "Map": 28, "Found by": 24,
+}
+XLSX_HEADER_FONT = Font(bold=True)
 
 
 def _date(value: datetime | None) -> str:
@@ -132,6 +145,39 @@ def write_leads_csv(
         count += 1
     text.flush()
     text.detach()
+    buffer.seek(0)
+    return buffer, count
+
+
+def _xlsx_cell(sheet, value: Cell, font: Font | None = None) -> WriteOnlyCell:
+    if isinstance(value, str):
+        cell = WriteOnlyCell(sheet, value=ILLEGAL_CHARACTERS_RE.sub("", value))
+        cell.data_type = "s"
+    else:
+        cell = WriteOnlyCell(sheet, value=value)
+    if font is not None:
+        cell.font = font
+    return cell
+
+
+def write_leads_xlsx(
+    db: Session,
+    filters: BusinessFilters,
+    sort: BusinessSort | None = None,
+    direction: SortDirection | None = None,
+) -> tuple[IO[bytes], int]:
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet(XLSX_SHEET_TITLE)
+    sheet.freeze_panes = "A2"
+    for index, header in enumerate(LEAD_HEADERS, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = XLSX_COLUMN_WIDTHS.get(header, XLSX_DEFAULT_COLUMN_WIDTH)
+    sheet.append([_xlsx_cell(sheet, header, XLSX_HEADER_FONT) for header in LEAD_HEADERS])
+    count = 0
+    for row in iter_lead_rows(db, filters, sort, direction):
+        sheet.append([_xlsx_cell(sheet, cell) for cell in row])
+        count += 1
+    buffer = tempfile.SpooledTemporaryFile(max_size=SPOOL_MAX_MEGABYTES * BYTES_PER_MEGABYTE)
+    workbook.save(buffer)
     buffer.seek(0)
     return buffer, count
 

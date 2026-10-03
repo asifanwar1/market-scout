@@ -3,6 +3,7 @@ import { request } from "@/api/client/request";
 import type { TApiArgs, TQueryParams, WithSignal } from "@/api/types/common";
 import { HTTP_METHODS } from "@/constants";
 import type {
+    TBulkDeleteBody,
     TBulkUpdateBody,
     TDoNotContactBody,
     TGetBusinessesParams,
@@ -10,6 +11,7 @@ import type {
 } from "./businesses.request.types";
 import type {
     TAssignedUser,
+    TBulkDeleteResponse,
     TBulkUpdateResponse,
     TBusinessDetail,
     TDoNotContactResponse,
@@ -49,10 +51,25 @@ export const UpdateBusiness = async ({
     });
 };
 
+export const DeleteBusiness = async ({ id }: TApiArgs) => {
+    return request<void>({
+        method: HTTP_METHODS.DELETE,
+        url: ENDPOINTS.BUSINESSES.detail(id),
+    });
+};
+
 export const BulkUpdateBusinesses = async (body: TBulkUpdateBody) => {
     return request<TBulkUpdateResponse, TBulkUpdateBody>({
         method: HTTP_METHODS.POST,
         url: ENDPOINTS.BUSINESSES.BULK_UPDATE,
+        body,
+    });
+};
+
+export const BulkDeleteBusinesses = async (body: TBulkDeleteBody) => {
+    return request<TBulkDeleteResponse, TBulkDeleteBody>({
+        method: HTTP_METHODS.POST,
+        url: ENDPOINTS.BUSINESSES.BULK_DELETE,
         body,
     });
 };

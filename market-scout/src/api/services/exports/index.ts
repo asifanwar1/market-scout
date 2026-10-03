@@ -9,12 +9,16 @@ export type TExportLeadsParams = TBusinessFilters & {
     direction?: TSortDirection;
 };
 
-export const ExportLeadsCsv = async (params: TExportLeadsParams) => {
+const exportLeads = async (url: string, params: TExportLeadsParams) => {
     return request<Blob>({
         method: HTTP_METHODS.GET,
-        url: ENDPOINTS.EXPORTS.LEADS_CSV,
+        url,
         params: params as TQueryParams,
         responseType: "blob",
         silent: true,
     });
 };
+
+export const ExportLeadsCsv = (params: TExportLeadsParams) => exportLeads(ENDPOINTS.EXPORTS.LEADS_CSV, params);
+
+export const ExportLeadsXlsx = (params: TExportLeadsParams) => exportLeads(ENDPOINTS.EXPORTS.LEADS_XLSX, params);

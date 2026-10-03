@@ -91,6 +91,10 @@ export type TBulkUpdateResponse = {
     updated: number;
 };
 
+export type TBulkDeleteResponse = {
+    deleted: number;
+};
+
 export type TDoNotContactResponse = {
     id: number;
     kind: "business" | "phone" | "email";

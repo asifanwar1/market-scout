@@ -6,12 +6,14 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import FIRST_PAGE, LIMIT_MAX, LIMIT_MIN
 from app.core.dependencies import get_db
-from app.features.auth.dependencies import get_current_user
+from app.features.auth.dependencies import get_current_admin_user, get_current_user
 from app.features.businesses import service
 from app.features.businesses.dependencies import business_filters
 from app.features.businesses.schemas import (
     AssignedUser,
+    BulkBusinessDelete,
     BulkBusinessUpdate,
+    BulkDeleteResponse,
     BulkUpdateResponse,
     BusinessDetailResponse,
     BusinessListResponse,
@@ -53,6 +55,13 @@ def bulk_update_businesses(update_in: BulkBusinessUpdate, db: Session = Depends(
     return {"updated": updated}
 
 
+@router.post("/bulk-delete", response_model=BulkDeleteResponse)
+def bulk_delete_businesses(delete_in: BulkBusinessDelete, db: Session = Depends(get_db), _=Depends(get_current_admin_user)):
+    deleted = service.bulk_delete_businesses(db, delete_in)
+    sheets_service.notify_changed()
+    return {"deleted": deleted}
+
+
 @router.get("/{business_id}", response_model=BusinessDetailResponse)
 def get_business(business_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     return service.get_business_detail(db, business_id)
@@ -65,6 +74,12 @@ def update_business(
     business = service.update_business(db, business_id, update_in)
     sheets_service.notify_changed()
     return business
+
+
+@router.delete("/{business_id}", status_code=HTTPStatus.NO_CONTENT)
+def delete_business(business_id: int, db: Session = Depends(get_db), _=Depends(get_current_admin_user)):
+    service.delete_business(db, business_id)
+    sheets_service.notify_changed()
 
 
 @router.post("/{business_id}/do-not-contact", response_model=DoNotContactResponse, status_code=HTTPStatus.CREATED)

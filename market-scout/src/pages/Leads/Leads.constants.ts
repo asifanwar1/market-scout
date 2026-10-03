@@ -23,9 +23,33 @@ export const LEADS_PAGE_TITLE = "Leads";
 export const LEADS_PAGE_DESCRIPTION = "Businesses to contact, best first. Click a row for details and to record what happened.";
 
 export const EXPORT_FILE_PREFIX = "market-scout-leads-";
-export const EXPORT_FILE_EXTENSION = ".csv";
+
+export const EXPORT_FORMAT = {
+    CSV: "csv",
+    XLSX: "xlsx",
+} as const;
+
+export const EXPORT_OPTIONS = [
+    { format: EXPORT_FORMAT.CSV, label: "CSV (.csv)", extension: ".csv" },
+    { format: EXPORT_FORMAT.XLSX, label: "Excel (.xlsx)", extension: ".xlsx" },
+] as const;
+
+export const EXPORT_BUTTON_LABEL = "Export";
 
 export const SELECT_COLUMN_WIDTH = 40;
+export const ACTIONS_COLUMN_WIDTH = 56;
+
+export const DELETE_LEAD_TITLE = "Delete this lead?";
+export const DELETE_LEAD_DESCRIPTION_SUFFIX =
+    "will be permanently erased, along with its contact details, sources and history. This can't be undone, and a future run may find the business again as a new lead.";
+export const DELETE_LEAD_CONFIRM_TEXT = "Delete lead";
+export const DELETE_LEAD_ARIA_PREFIX = "Delete";
+
+export const BULK_DELETE_TITLE = "Delete the selected leads?";
+export const BULK_DELETE_DESCRIPTION_SUFFIX =
+    "will be permanently erased, along with their contact details, sources and history. This can't be undone, and a future run may find the businesses again as new leads.";
+export const BULK_DELETE_CONFIRM_TEXT = "Delete leads";
+export const BULK_DELETE_BUTTON_LABEL = "Delete selected";
 
 export const MIN_SCORES = [
     { value: String(SCORE_MEDIUM_MIN), label: `${SCORE_MEDIUM_MIN}+ (some contact detail)` },

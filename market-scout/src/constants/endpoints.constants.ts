@@ -8,6 +8,7 @@ export const ENDPOINTS = {
     },
     BUSINESSES: {
         ASSIGNEES: "/businesses/assignees",
+        BULK_DELETE: "/businesses/bulk-delete",
         BULK_UPDATE: "/businesses/bulk-update",
         ROOT: "/businesses/",
         detail: (id?: number | string) => `/businesses/${id}`,
@@ -18,6 +19,7 @@ export const ENDPOINTS = {
     },
     EXPORTS: {
         LEADS_CSV: "/exports/leads.csv",
+        LEADS_XLSX: "/exports/leads.xlsx",
     },
     GEOGRAPHIES: {
         ROOT: "/geographies/",

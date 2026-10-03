@@ -126,3 +126,12 @@ class BulkBusinessUpdate(BaseModel):
 
 class BulkUpdateResponse(BaseModel):
     updated: int
+
+
+class BulkBusinessDelete(BaseModel):
+    business_ids: list[int] = Field(min_length=1, max_length=BULK_UPDATE_MAX)
+    model_config = {"extra": "forbid"}
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: int

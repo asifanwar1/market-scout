@@ -1,16 +1,17 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { Globe, MessageCircle } from "lucide-react";
+import { Globe, MessageCircle, Trash2 } from "lucide-react";
 
 import type { TBusinessListItem } from "@/api/services/businesses/businesses.response.types";
 import ScoreBadge from "@/components/custom/ScoreBadge";
 import StatusBadge from "@/components/custom/StatusBadge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getLeadStatus } from "@/constants";
 import { formatPhone, formatRelative } from "@/utils/format.utils";
-import { SELECT_COLUMN_WIDTH } from "./Leads.constants";
+import { ACTIONS_COLUMN_WIDTH, DELETE_LEAD_ARIA_PREFIX, SELECT_COLUMN_WIDTH } from "./Leads.constants";
 
-export const leadColumns: ColumnDef<TBusinessListItem>[] = [
+const baseColumns: ColumnDef<TBusinessListItem>[] = [
     {
         id: "select",
         size: SELECT_COLUMN_WIDTH,
@@ -139,3 +140,33 @@ export const leadColumns: ColumnDef<TBusinessListItem>[] = [
         ),
     },
 ];
+
+export const getLeadColumns = (
+    isAdmin: boolean,
+    onDelete: (lead: TBusinessListItem) => void,
+): ColumnDef<TBusinessListItem>[] => {
+    if (!isAdmin) return baseColumns;
+
+    const actionsColumn: ColumnDef<TBusinessListItem> = {
+        id: "actions",
+        header: "",
+        enableSorting: false,
+        size: ACTIONS_COLUMN_WIDTH,
+        cell: ({ row }) => (
+            <Button
+                variant="ghost"
+                size="icon"
+                className="text-destructive hover:text-destructive"
+                aria-label={`${DELETE_LEAD_ARIA_PREFIX} ${row.original.name}`}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(row.original);
+                }}
+            >
+                <Trash2 />
+            </Button>
+        ),
+    };
+
+    return [...baseColumns, actionsColumn];
+};

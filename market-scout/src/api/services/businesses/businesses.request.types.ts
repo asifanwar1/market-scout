@@ -38,6 +38,10 @@ export type TBulkUpdateBody = {
     assigned_to_id?: number | null;
 };
 
+export type TBulkDeleteBody = {
+    business_ids: number[];
+};
+
 export type TDoNotContactBody = {
     reason?: string | null;
 };

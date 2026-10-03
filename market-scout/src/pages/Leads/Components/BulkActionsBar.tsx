@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { LEAD_STATUS_OPTIONS } from "@/constants";
 import type { LeadStatus } from "@/constants/lead-status.constants";
+import { BULK_DELETE_BUTTON_LABEL } from "../Leads.constants";
 import type { TLeadsPage } from "../Leads.Container";
 
 const UNASSIGN = "none";
@@ -19,7 +20,7 @@ type TBulkActionsBarProps = {
 };
 
 const BulkActionsBar = ({ page }: TBulkActionsBarProps) => {
-    const { selectedIds, assignees, applyBulkUpdate, isBulkUpdating, setRowSelection } = page;
+    const { isAdmin, selectedIds, assignees, applyBulkUpdate, isBulkUpdating, openBulkDelete, setRowSelection } = page;
     const count = selectedIds.length;
 
     if (count === 0) return null;
@@ -77,6 +78,13 @@ const BulkActionsBar = ({ page }: TBulkActionsBarProps) => {
                     {LEAD_STATUS_OPTIONS.map(renderStatusOption)}
                 </SelectContent>
             </Select>
+
+            {isAdmin && (
+                <Button variant="destructive" size="sm" onClick={openBulkDelete}>
+                    <Trash2 />
+                    {BULK_DELETE_BUTTON_LABEL}
+                </Button>
+            )}
 
             <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
                 <X />

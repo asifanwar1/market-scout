@@ -15,7 +15,7 @@ from app.features.businesses.models import (
     LeadStatus,
     SourceRecord,
 )
-from app.features.businesses.schemas import BulkBusinessUpdate, BusinessSort, BusinessUpdate, SortDirection
+from app.features.businesses.schemas import BulkBusinessDelete, BulkBusinessUpdate, BusinessSort, BusinessUpdate, SortDirection
 from app.features.compliance import service as compliance_service
 from app.features.geographies import service as geographies_service
 from app.features.geographies.models import Geography
@@ -357,6 +357,24 @@ def update_business(db: Session, business_id: int, update_in: BusinessUpdate) ->
         business.notes = (data["notes"] or "").strip() or None
     db.commit()
     return get_business_detail(db, business_id)
+
+
+def delete_business(db: Session, business_id: int) -> None:
+    business = get_business_by_id(db, business_id)
+    db.delete(business)
+    db.commit()
+
+
+def bulk_delete_businesses(db: Session, delete_in: BulkBusinessDelete) -> int:
+    businesses = (
+        db.query(Business)
+        .filter(Business.id.in_(set(delete_in.business_ids)), compliance_service.not_blocked_filter())
+        .all()
+    )
+    for business in businesses:
+        db.delete(business)
+    db.commit()
+    return len(businesses)
 
 
 def bulk_update_businesses(db: Session, update_in: BulkBusinessUpdate) -> int:

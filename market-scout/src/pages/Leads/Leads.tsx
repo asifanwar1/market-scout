@@ -1,21 +1,27 @@
-import { Download, Loader2 } from "lucide-react";
-
+import ConfirmationModal from "@/components/custom/ConfirmationModal";
 import DataTable from "@/components/custom/DataTable";
 import PageHeader from "@/components/custom/PageHeader";
 import Pagination from "@/components/custom/Pagination";
-import { Button } from "@/components/ui/button";
 import BulkActionsBar from "./Components/BulkActionsBar";
+import ExportMenu from "./Components/ExportMenu";
 import LeadDrawer from "./Components/LeadDrawer";
 import LeadsEmptyState from "./Components/LeadsEmptyState";
 import LeadsFilters from "./Components/LeadsFilters";
-import { LEADS_PAGE_DESCRIPTION, LEADS_PAGE_TITLE } from "./Leads.constants";
+import {
+    BULK_DELETE_CONFIRM_TEXT,
+    BULK_DELETE_TITLE,
+    DELETE_LEAD_CONFIRM_TEXT,
+    DELETE_LEAD_TITLE,
+    LEADS_PAGE_DESCRIPTION,
+    LEADS_PAGE_TITLE,
+} from "./Leads.constants";
 import { useLeadsPage } from "./Leads.Container";
-import { leadColumns } from "./LeadsTable.columns";
 
 const Leads = () => {
     const page = useLeadsPage();
     const {
         isAdmin,
+        columns,
         leads,
         total,
         hasLeads,
@@ -34,9 +40,16 @@ const Leads = () => {
         closeLead,
         openLeadRow,
         getLeadRowId,
-        exportLeads,
-        isExporting,
-        isExportDisabled,
+        isDeleteOpen,
+        isDeleting,
+        deleteDescription,
+        cancelDelete,
+        confirmDelete,
+        isBulkDeleteOpen,
+        isBulkDeleting,
+        bulkDeleteDescription,
+        cancelBulkDelete,
+        confirmBulkDelete,
     } = page;
 
     return (
@@ -44,12 +57,7 @@ const Leads = () => {
             <PageHeader
                 title={LEADS_PAGE_TITLE}
                 description={LEADS_PAGE_DESCRIPTION}
-                actions={
-                    <Button variant="outline" onClick={exportLeads} disabled={isExportDisabled}>
-                        {isExporting ? <Loader2 className="animate-spin" /> : <Download />}
-                        Export CSV
-                    </Button>
-                }
+                actions={<ExportMenu page={page} />}
             />
 
             <LeadsFilters page={page} />
@@ -57,7 +65,7 @@ const Leads = () => {
 
             <div className={tableClassName}>
                 <DataTable
-                    columns={leadColumns}
+                    columns={columns}
                     data={leads}
                     getRowId={getLeadRowId}
                     isLoading={isLeadsLoading}
@@ -81,6 +89,28 @@ const Leads = () => {
             )}
 
             <LeadDrawer leadId={leadId} onClose={closeLead} />
+
+            <ConfirmationModal
+                open={isDeleteOpen}
+                title={DELETE_LEAD_TITLE}
+                description={deleteDescription}
+                confirmText={DELETE_LEAD_CONFIRM_TEXT}
+                destructive
+                isLoading={isDeleting}
+                onConfirm={confirmDelete}
+                onClose={cancelDelete}
+            />
+
+            <ConfirmationModal
+                open={isBulkDeleteOpen}
+                title={BULK_DELETE_TITLE}
+                description={bulkDeleteDescription}
+                confirmText={BULK_DELETE_CONFIRM_TEXT}
+                destructive
+                isLoading={isBulkDeleting}
+                onConfirm={confirmBulkDelete}
+                onClose={cancelBulkDelete}
+            />
         </div>
     );
 };

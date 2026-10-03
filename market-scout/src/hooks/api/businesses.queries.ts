@@ -6,7 +6,9 @@ import {
 
 import {
     BUSINESS_QUERY_KEYS,
+    BulkDeleteBusinesses,
     BulkUpdateBusinesses,
+    DeleteBusiness,
     GetAssignees,
     GetBusiness,
     GetBusinesses,
@@ -14,6 +16,7 @@ import {
     UpdateBusiness,
 } from "@/api";
 import type {
+    TBulkDeleteBody,
     TBulkUpdateBody,
     TDoNotContactBody,
     TGetBusinessesParams,
@@ -76,6 +79,20 @@ export const useUpdateBusiness = () => {
                 [BUSINESS_QUERY_KEYS.BUSINESSES],
             ]);
         },
+    });
+};
+
+export const useDeleteBusiness = () => {
+    return useMutation({
+        mutationFn: (id: number) => DeleteBusiness({ id }),
+        onSuccess: refreshBusinesses,
+    });
+};
+
+export const useBulkDeleteBusinesses = () => {
+    return useMutation({
+        mutationFn: (body: TBulkDeleteBody) => BulkDeleteBusinesses(body),
+        onSuccess: refreshBusinesses,
     });
 };
 

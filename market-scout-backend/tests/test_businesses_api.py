@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.features.businesses.models import Business
+from app.features.businesses.models import Business, ContactPoint, SourceRecord
 from app.features.geographies.models import Geography
 
 BASE = "/api/v1/businesses"
@@ -38,6 +38,8 @@ def test_endpoints_require_a_login(client, leads):
     assert client.patch(f"{BASE}/{leads['noor'].id}", json={"notes": "x"}).status_code == 401
     assert client.post(f"{BASE}/bulk-update", json={"business_ids": [1], "lead_status": "contacted"}).status_code == 401
     assert client.get(f"{BASE}/assignees").status_code == 401
+    assert client.delete(f"{BASE}/{leads['noor'].id}").status_code == 401
+    assert client.post(f"{BASE}/bulk-delete", json={"business_ids": [1]}).status_code == 401
     assert client.post(f"{BASE}/{leads['noor'].id}/do-not-contact", json={}).status_code == 401
 
 
@@ -211,6 +213,74 @@ def test_detail_shows_contacts_with_provenance_classification_and_sources(client
 
 def test_detail_of_a_missing_business_is_404(client, sales_user, auth_headers):
     assert client.get(f"{BASE}/9999", headers=auth_headers(sales_user)).status_code == 404
+
+
+def test_an_admin_deletes_a_lead_and_everything_attached_to_it(client, leads, admin_user, auth_headers, db_session):
+    headers = auth_headers(admin_user)
+    target = leads["noor"]
+    target_id = target.id
+
+    assert db_session.query(ContactPoint).filter_by(business_id=target_id).count() > 0
+    assert db_session.query(SourceRecord).filter_by(business_id=target_id).count() > 0
+
+    assert client.delete(f"{BASE}/{target_id}", headers=headers).status_code == 204
+
+    db_session.expire_all()
+    assert db_session.get(Business, target_id) is None
+    assert db_session.query(ContactPoint).filter_by(business_id=target_id).count() == 0
+    assert db_session.query(SourceRecord).filter_by(business_id=target_id).count() == 0
+    assert client.get(f"{BASE}/{target_id}", headers=headers).status_code == 404
+    assert client.get(f"{BASE}/", headers=headers).json()["count"] == 5
+
+
+def test_a_salesperson_cannot_delete_a_lead(client, leads, sales_user, auth_headers, db_session):
+    response = client.delete(f"{BASE}/{leads['noor'].id}", headers=auth_headers(sales_user))
+
+    assert response.status_code == 403
+    assert db_session.get(Business, leads["noor"].id) is not None
+
+
+def test_deleting_a_missing_lead_is_404(client, admin_user, auth_headers):
+    assert client.delete(f"{BASE}/9999", headers=auth_headers(admin_user)).status_code == 404
+
+
+def test_an_admin_bulk_deletes_leads_and_unknown_ids_are_ignored(client, leads, admin_user, auth_headers, db_session):
+    headers = auth_headers(admin_user)
+    doomed = [leads["noor"].id, leads["bilal"].id, 9999]
+    kept = leads["zahid"].id
+
+    response = client.post(f"{BASE}/bulk-delete", headers=headers, json={"business_ids": doomed})
+
+    assert response.status_code == 200 and response.json() == {"deleted": 2}
+    db_session.expire_all()
+    assert db_session.query(Business).filter(Business.id.in_(doomed)).count() == 0
+    assert db_session.query(ContactPoint).filter(ContactPoint.business_id.in_(doomed)).count() == 0
+    assert db_session.query(SourceRecord).filter(SourceRecord.business_id.in_(doomed)).count() == 0
+    assert db_session.get(Business, kept) is not None
+    assert client.get(f"{BASE}/", headers=headers).json()["count"] == 4
+
+
+def test_bulk_delete_is_admin_only_and_validates_input(client, leads, admin_user, sales_user, auth_headers, db_session):
+    body = {"business_ids": [leads["noor"].id]}
+
+    assert client.post(f"{BASE}/bulk-delete", headers=auth_headers(sales_user), json=body).status_code == 403
+    assert db_session.get(Business, leads["noor"].id) is not None
+
+    headers = auth_headers(admin_user)
+    assert client.post(f"{BASE}/bulk-delete", headers=headers, json={"business_ids": []}).status_code == 422
+    assert client.post(f"{BASE}/bulk-delete", headers=headers, json={}).status_code == 422
+    assert client.post(f"{BASE}/bulk-delete", headers=headers, json={**body, "lead_status": "new"}).status_code == 422
+
+
+def test_a_blocked_lead_is_not_bulk_deleted(client, leads, admin_user, auth_headers, db_session):
+    headers = auth_headers(admin_user)
+    blocked = leads["noor"]
+    client.post(f"{BASE}/{blocked.id}/do-not-contact", headers=headers, json={})
+
+    response = client.post(f"{BASE}/bulk-delete", headers=headers, json={"business_ids": [blocked.id]})
+
+    assert response.json() == {"deleted": 0}
+    assert db_session.get(Business, blocked.id) is not None
 
 
 def test_a_salesperson_updates_status_notes_and_assignee(client, leads, sales_user, admin_user, auth_headers):
