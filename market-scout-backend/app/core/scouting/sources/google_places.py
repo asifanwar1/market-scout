@@ -5,8 +5,11 @@ from http import HTTPStatus
 import httpx
 
 from app.core.scouting.sources.base import (
+    KIND_DISCOVERY,
     SourceAuthError,
+    SourceBuildContext,
     SourceError,
+    SourceInfo,
     request_with_retries,
 )
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery, SearchResult
@@ -18,6 +21,10 @@ REQUEST_TIMEOUT_SECONDS = 30
 SOURCE_KEY = "google_places"
 ENDPOINT = "https://places.googleapis.com/v1/places:searchText"
 MAX_PAGES = 3
+SEARCH_SECONDS = 3
+TERMS_NOTE = (
+    "Google's terms limit how long Places data may be stored. Check them before you keep these leads long term."
+)
 PAGE_SIZE = 20
 
 _FIELD_MASK = ",".join(
@@ -152,3 +159,26 @@ def _error_message(response: httpx.Response, fallback: str) -> str:
     except ValueError:
         message = None
     return f"{fallback}: {message}" if message else fallback
+
+
+def build(context: SourceBuildContext) -> GooglePlacesSource:
+    if not context.api_key:
+        raise ValueError("Google Places needs an API key")
+    return GooglePlacesSource(context.api_key)
+
+
+INFO = SourceInfo(
+    key=SOURCE_KEY,
+    name="Google Places API",
+    description="Best coverage of phone numbers and websites. Needs an API key and is billed per request.",
+    kind=KIND_DISCOVERY,
+    requires_api_key=True,
+    default_enabled=False,
+    is_paid=True,
+    api_key_setting="GOOGLE_PLACES_API_KEY",
+    build=build,
+    max_requests_per_search=MAX_PAGES,
+    cost_per_request_setting="PLACES_COST_PER_REQUEST_USD",
+    seconds_per_search=lambda settings: SEARCH_SECONDS,
+    terms_note=TERMS_NOTE,
+)

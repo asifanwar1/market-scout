@@ -2,6 +2,7 @@ export const LEAD_STATUS = {
     NEW: "new",
     CONTACTED: "contacted",
     INTERESTED: "interested",
+    MEETING: "meeting",
     QUOTED: "quoted",
     CUSTOMER: "customer",
     NOT_INTERESTED: "not_interested",
@@ -24,6 +25,11 @@ export const LEAD_STATUS_OPTIONS: ReadonlyArray<{
         value: "interested",
         label: "Interested",
         className: "bg-accent text-accent-foreground",
+    },
+    {
+        value: "meeting",
+        label: "Meeting",
+        className: "bg-primary text-primary-foreground",
     },
     {
         value: "quoted",

@@ -36,6 +36,9 @@ CONDITION_OPERATOR_PATTERN = "~"
 
 PRICE_DIGITS = 2
 
+COUNTRY_CODE_PAKISTAN = "PK"
+PAKISTAN_BOUNDS = {"west": 60.5, "east": 77.9, "south": 23.5, "north": 37.2}
+
 TOKEN_TYPE_BEARER = "bearer"
 AUTH_SCHEME_BEARER = "Bearer"
 AUTH_CHALLENGE_HEADER = "WWW-Authenticate"

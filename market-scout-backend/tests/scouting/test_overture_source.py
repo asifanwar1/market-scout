@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from app.core.scouting import overture_store
+from app.core.scouting import place_store
 from app.core.scouting.sources import overture
 from app.core.scouting.sources.base import SourceError
 from app.core.scouting.types import SearchArea, SearchQuery
@@ -24,7 +24,7 @@ def place(identifier: str, name: str, category: str = "electronics_store", **ove
 @pytest.fixture()
 def store_path(tmp_path):
     path = tmp_path / "overture.sqlite"
-    overture_store.write_store(
+    place_store.write_store(
         path,
         [
             place("a", "Noor Solar Traders"),
@@ -124,7 +124,7 @@ def test_names_are_matched_without_regard_to_case(store_path):
 
 def test_an_underscore_in_a_category_is_not_a_wildcard(tmp_path):
     path = tmp_path / "o.sqlite"
-    overture_store.write_store(
+    place_store.write_store(
         path, [place("real", "Real Shop", "electronics_store"), place("lookalike", "Fake Shop", "electronicsXstore")], release="r"
     )
     assert ids(search(str(path), {"clauses": [["shop=electronics"]]})) == {"real"}
@@ -137,7 +137,7 @@ def test_a_pattern_with_quotes_is_just_text_not_sql(store_path):
 
 def test_results_are_best_confidence_first(store_path):
     path = store_path
-    overture_store.write_store(
+    place_store.write_store(
         path, [place("low", "Solar A", confidence=0.4), place("high", "Solar B", confidence=0.9)], release="r"
     )
     assert [business.external_id for business in search(path).businesses] == ["high", "low"]
@@ -151,7 +151,7 @@ def test_a_search_makes_no_requests_and_an_unsupported_term_finds_nothing(store_
 
 def test_a_place_becomes_a_lead_with_its_contacts_and_provenance(tmp_path):
     path = tmp_path / "o.sqlite"
-    overture_store.write_store(
+    place_store.write_store(
         path,
         [
             place(
@@ -199,44 +199,44 @@ def test_a_file_from_an_older_layout_has_to_be_downloaded_again(tmp_path):
     connection.commit()
     connection.close()
 
-    with pytest.raises(overture_store.StoreError, match="older version"):
-        overture_store.read_info(path)
+    with pytest.raises(place_store.StoreError, match="older version"):
+        place_store.read_info(path)
 
 
 def test_a_file_that_is_not_a_database_is_reported_not_crashed_on(tmp_path):
     path = tmp_path / "junk.sqlite"
     path.write_bytes(b"this is not a database at all" * 50)
 
-    with pytest.raises(overture_store.StoreError, match="can't be read"):
-        overture_store.read_info(path)
+    with pytest.raises(place_store.StoreError, match="can't be read"):
+        place_store.read_info(path)
 
 
 def test_a_failed_rebuild_leaves_the_previous_file_untouched(tmp_path):
     path = tmp_path / "o.sqlite"
-    overture_store.write_store(path, [place("a", "Solar A")], release="old")
+    place_store.write_store(path, [place("a", "Solar A")], release="old")
 
     def broken():
         yield place("b", "Solar B")
         raise RuntimeError("network dropped")
 
     with pytest.raises(RuntimeError):
-        overture_store.write_store(path, broken(), release="new")
+        place_store.write_store(path, broken(), release="new")
 
-    assert overture_store.read_info(path).release == "old"
+    assert place_store.read_info(path).release == "old"
     assert not (tmp_path / "o.sqlite.building").exists()
 
 
 def test_rebuilding_replaces_the_data_and_the_release(tmp_path):
     path = tmp_path / "o.sqlite"
-    overture_store.write_store(path, [place("a", "Solar A")], release="old")
-    count = overture_store.write_store(path, [place("a", "Solar A"), place("b", "Solar B")], release="new")
+    place_store.write_store(path, [place("a", "Solar A")], release="old")
+    count = place_store.write_store(path, [place("a", "Solar A"), place("b", "Solar B")], release="new")
 
-    info = overture_store.read_info(path)
+    info = place_store.read_info(path)
     assert count == 2 and (info.release, info.places) == ("new", 2)
 
 
 def test_the_file_is_opened_read_only(store_path):
-    connection = overture_store.connect(store_path)
+    connection = place_store.connect(store_path)
     try:
         with pytest.raises(sqlite3.OperationalError):
             connection.execute("DELETE FROM places")

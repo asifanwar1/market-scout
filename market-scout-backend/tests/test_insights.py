@@ -251,6 +251,22 @@ def test_paid_source_shows_what_it_cost_and_the_free_one_shows_none(client, two_
     assert rows["osm"]["estimated_cost_usd"] is None and rows["osm"]["cost_per_lead_usd"] is None
 
 
+def test_each_paid_source_is_priced_at_its_own_rate(client, make_business, headers, db_session, make_run, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "HERE_COST_PER_REQUEST_USD", 0.02)
+    make_business("Here Traders", phones=["0300 4444444"], source="here")
+    run = make_run()
+    db_session.add(RunTask(run_id=run.id, source_key="here", geography_name="Lahore", term_text="solar", term_language="en",
+                           segment_slug="dealer", status="done", requests_made=50))
+    db_session.commit()
+
+    row = by_key(client.get(f"{BASE}/sources", headers=headers).json())["here"]
+
+    assert row["name"] == "HERE Places" and row["is_paid"] is True
+    assert row["requests"] == 50 and row["estimated_cost_usd"] == 1.0 and row["cost_per_lead_usd"] == 1.0
+
+
 def test_a_source_that_was_never_used_is_left_out(client, make_business, headers):
     make_business("Only Osm", phones=["0300 9999999"], source="osm")
     assert list(by_key(client.get(f"{BASE}/sources", headers=headers).json())) == ["osm"]

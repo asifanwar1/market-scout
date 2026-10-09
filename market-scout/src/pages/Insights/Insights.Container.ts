@@ -2,15 +2,19 @@ import { parseAsInteger, useQueryState } from "nuqs";
 import { useState } from "react";
 
 import { USER_ROLE } from "@/constants";
+import { CONVERSION_GROUP, type ConversionGroup } from "@/constants/pipeline.constants";
 import { useGetProfiles } from "@/hooks/api/catalog.queries";
 import {
+    useGetConversion,
     useGetCoverage,
     useGetGaps,
     useGetMovers,
     useGetOverview,
+    useGetPipeline,
     useGetSourcesQuality,
     useGetTimeline,
 } from "@/hooks/api/insights.queries";
+import { useGetPipelineConfig } from "@/hooks/api/pipeline.queries";
 import { useStore } from "@/store";
 import {
     DEFAULT_GAP_THRESHOLD,
@@ -33,6 +37,8 @@ export const useInsightsPage = () => {
     const [rangeValue, setRangeValue] = useState(RANGES[DEFAULT_RANGE_INDEX].value);
     const range = RANGES.find((item) => item.value === rangeValue) ?? RANGES[DEFAULT_RANGE_INDEX];
     const [threshold, setThreshold] = useState(DEFAULT_GAP_THRESHOLD);
+    const [conversionGroup, setConversionGroup] = useState<ConversionGroup>(CONVERSION_GROUP.SOURCE);
+    const currency = useGetPipelineConfig();
 
     const ready = profileId !== undefined;
     const overview = useGetOverview(profileId, ready);
@@ -41,6 +47,8 @@ export const useInsightsPage = () => {
     const timeline = useGetTimeline(profileId, range.days, range.bucket, ready);
     const sources = useGetSourcesQuality(profileId, ready);
     const movers = useGetMovers(profileId, MOVERS_DAYS, ready);
+    const pipeline = useGetPipeline(profileId, ready);
+    const conversion = useGetConversion(profileId, conversionGroup, ready);
 
     const hasProfile = profileId !== undefined;
     const hasProfileChoice = profiles.length > 1 && hasProfile;
@@ -55,6 +63,10 @@ export const useInsightsPage = () => {
 
     const onProfileChange = (value: string) => {
         setProfileId(Number(value));
+    };
+
+    const onConversionGroupChange = (group: ConversionGroup) => {
+        setConversionGroup(group);
     };
 
     return {
@@ -77,7 +89,12 @@ export const useInsightsPage = () => {
         timeline,
         sources,
         movers,
+        pipeline,
+        conversion,
+        conversionGroup,
+        currency,
         onProfileChange,
+        onConversionGroupChange,
     };
 };
 

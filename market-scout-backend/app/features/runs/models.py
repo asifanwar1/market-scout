@@ -18,6 +18,7 @@ from sqlalchemy.sql import func
 from app.core.config import settings
 from app.core.constants import PERCENT_MAX, PRICE_DIGITS
 from app.core.database import Base
+from app.core.scouting.sources.registry import get_source_info
 
 
 class RunStatus(str, PyEnum):
@@ -92,7 +93,12 @@ class Run(Base):
 
     @property
     def estimated_cost_usd(self) -> float:
-        return round(self.paid_requests_used * settings.PLACES_COST_PER_REQUEST_USD, PRICE_DIGITS)
+        total = 0.0
+        for key, values in (self.stats or {}).items():
+            info = get_source_info(key)
+            if info is not None and info.is_paid:
+                total += values.get("requests", 0) * info.cost_per_request(settings)
+        return round(total, PRICE_DIGITS)
 
 
 class RunTask(Base):

@@ -177,8 +177,8 @@ const SearchTermsSection = () => {
             <CardHeader>
                 <CardTitle>Search terms</CardTitle>
                 <CardDescription>
-                    What each source is asked. Google-style sources use the text as written; OpenStreetMap needs a filter
-                    (tags and name patterns) because it doesn't do free-text search.
+                    What each source is asked. Hosted sources (Google Places, HERE, TomTom) use the text as written; OpenStreetMap,
+                    Overture Maps and Foursquare need a filter (tags and name patterns) because they don't do free-text search.
                 </CardDescription>
                 <CardAction>
                     <Button

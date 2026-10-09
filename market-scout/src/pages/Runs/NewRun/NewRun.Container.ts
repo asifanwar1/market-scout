@@ -149,7 +149,7 @@ export const useNewRun = () => {
     const profileValue = String(profileId);
     const isEnrichmentOn = enrichWebsites && enrichmentAvailable;
     const confirmDescription = estimate
-        ? `This run may make up to ${formatCount(estimate.paid_requests_max)} billable Google requests (about ${formatUsd(estimate.estimated_cost_usd)} at the configured rate). You can cancel it while it runs.`
+        ? `This run may make up to ${formatCount(estimate.paid_requests_max)} billable requests (about ${formatUsd(estimate.estimated_cost_usd)} at the configured rate). You can cancel it while it runs.`
         : "";
 
     const closeConfirm = () => {

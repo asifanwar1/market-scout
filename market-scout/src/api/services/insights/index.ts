@@ -2,12 +2,15 @@ import { ENDPOINTS } from "@/constants/endpoints.constants";
 import { request } from "@/api/client/request";
 import { HTTP_METHODS } from "@/constants";
 import { INSIGHT_QUERY_KEYS } from "./queryKeys";
+import type { ConversionGroup } from "@/constants/pipeline.constants";
 import type {
+    TConversion,
     TCoverage,
     TGaps,
     TInsightBucket,
     TMovers,
     TOverview,
+    TPipeline,
     TSourcesQuality,
     TTimeline,
 } from "./insights.response.types";
@@ -30,5 +33,10 @@ export const GetSourcesQuality = (profileId?: number) =>
 
 export const GetMovers = (profileId: number | undefined, days: number) =>
     get<TMovers>(ENDPOINTS.INSIGHTS.MOVERS, { profile_id: profileId, days });
+
+export const GetPipeline = (profileId?: number) => get<TPipeline>(ENDPOINTS.INSIGHTS.PIPELINE, { profile_id: profileId });
+
+export const GetConversion = (profileId: number | undefined, groupBy: ConversionGroup) =>
+    get<TConversion>(ENDPOINTS.INSIGHTS.CONVERSION, { profile_id: profileId, group_by: groupBy });
 
 export { INSIGHT_QUERY_KEYS };

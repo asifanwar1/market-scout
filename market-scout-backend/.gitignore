@@ -13,5 +13,5 @@ secrets/
 *.db-shm
 *.db-wal
 .claude/
-imports/
+/imports/
 data/

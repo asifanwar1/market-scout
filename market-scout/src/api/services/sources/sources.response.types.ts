@@ -15,6 +15,8 @@ export type TSource = {
     requires_dataset: boolean;
     dataset_ready: boolean;
     dataset_note: string | null;
+    download_command: string | null;
+    terms_note: string | null;
     is_available: boolean;
 };
 

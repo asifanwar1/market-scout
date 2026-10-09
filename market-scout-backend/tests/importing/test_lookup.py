@@ -1,8 +1,8 @@
 import pytest
 
 from app.core.importing.lookup import OvertureLookup, fill_from
-from app.core.scouting import overture_store
-from app.core.scouting.overture_store import StoreError
+from app.core.scouting import place_store
+from app.core.scouting.place_store import StoreError
 from app.core.scouting.types import RawBusiness
 
 LAHORE = (31.34, 74.14, 31.70, 74.57)
@@ -21,7 +21,7 @@ def place(identifier: str, name: str, latitude: float = 31.5, longitude: float =
 @pytest.fixture()
 def lookup(tmp_path):
     path = tmp_path / "o.sqlite"
-    overture_store.write_store(
+    place_store.write_store(
         path,
         [
             place("kashif", "Kashif Traders", phones=["+923004309775"], websites=["https://kashif.pk"]),

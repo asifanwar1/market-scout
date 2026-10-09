@@ -7,6 +7,10 @@ export const SCORE_HIGH_MIN = 70;
 export const SCORE_MEDIUM_MIN = 40;
 
 export const NOTES_MAX_LENGTH = 5000;
+export const ACTIVITY_SUMMARY_MAX_LENGTH = 2000;
+export const TASK_TITLE_MAX_LENGTH = 200;
+export const PRODUCT_MAX_LENGTH = 120;
+export const OUTCOME_NOTE_MAX_LENGTH = 1000;
 export const DESCRIPTION_MAX_LENGTH = 500;
 export const REASON_MAX_LENGTH = 500;
 export const LIST_LABEL_MIN_LENGTH = 2;

@@ -22,6 +22,7 @@ class LeadStatus(str, PyEnum):
     NEW = "new"
     CONTACTED = "contacted"
     INTERESTED = "interested"
+    MEETING = "meeting"
     QUOTED = "quoted"
     CUSTOMER = "customer"
     NOT_INTERESTED = "not_interested"

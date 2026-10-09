@@ -7,21 +7,24 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.constants import PRICE_DIGITS
-from app.core.exceptions import NotFoundException
-from app.core.scouting.sources.registry import CATALOG, KIND_DISCOVERY, is_import_key, source_label
+from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.scouting.sources.base import KIND_DISCOVERY
+from app.core.scouting.sources.registry import CATALOG, is_import_key, source_label
 from app.features.businesses import service as businesses_service
 from app.features.businesses.models import (
     Business,
     BusinessClassification,
     ContactKind,
     ContactPoint,
+    LeadStatus,
     SourceRecord,
 )
 from app.features.businesses.service import BusinessFilters
 from app.features.geographies.models import Geography, GeographyLevel
 from app.features.insights.models import BusinessSnapshot
-from app.features.insights.schemas import Bucket
-from app.features.profiles.models import Profile
+from app.features.insights.schemas import Bucket, ConversionGroup
+from app.features.pipeline.models import ActivityKind, LeadActivity, LeadOutcome
+from app.features.profiles.models import Profile, ProfileSegment
 from app.features.runs.models import Run, RunTask, TaskStatus
 
 MIN_SNAPSHOTS_TO_COMPARE = 2
@@ -45,6 +48,23 @@ COST_PER_LEAD_DIGITS = 3
 
 
 UNCLASSIFIED = "unclassified"
+UNKNOWN_CITY = "unknown"
+UNKNOWN_CITY_NAME = "Unknown city"
+UNCLASSIFIED_NAME = "Unclassified"
+SEGMENT_NEEDS_PROFILE_MESSAGE = "Choose a profile to group by segment"
+STAGE_ORDER = (
+    LeadStatus.NEW.value,
+    LeadStatus.CONTACTED.value,
+    LeadStatus.INTERESTED.value,
+    LeadStatus.MEETING.value,
+    LeadStatus.QUOTED.value,
+    LeadStatus.CUSTOMER.value,
+)
+STAGE_RANK = {status: rank for rank, status in enumerate(STAGE_ORDER)}
+UNKNOWN_RANK = -1
+WON_STATUS = LeadStatus.CUSTOMER.value
+LOST_STATUS = LeadStatus.NOT_INTERESTED.value
+WIN_RATE_DIGITS = 3
 _PHONE_KINDS = (ContactKind.PHONE.value, ContactKind.WHATSAPP.value)
 
 
@@ -247,7 +267,7 @@ def get_sources(db: Session, profile_id: int | None) -> dict:
         used = int(requests.get(info.key, 0))
         if not found and not used:
             continue
-        cost = round(used * settings.PLACES_COST_PER_REQUEST_USD, PRICE_DIGITS) if info.is_paid else None
+        cost = round(used * info.cost_per_request(settings), PRICE_DIGITS) if info.is_paid else None
         data.append({
             "key": info.key,
             "name": info.name,
@@ -337,3 +357,159 @@ def get_movers(db: Session, profile_id: int | None, days: int, limit: int) -> di
         for business_id, previous, latest, change in movers
     ]
     return {"days": days, "data": data, "count": len(data)}
+
+
+class _PipelineLead(NamedTuple):
+    id: int
+    status: str
+    geography_id: int | None
+    rank: int
+    value: float
+    loss_reason: str | None
+
+
+def _pipeline_leads(db: Session, profile_id: int | None) -> list[_PipelineLead]:
+    visible = _visible_ids(db, profile_id)
+    rows = db.query(Business.id, Business.lead_status, Business.geography_id).filter(Business.id.in_(visible)).all()
+
+    furthest: dict[int, int] = defaultdict(lambda: UNKNOWN_RANK)
+    moves = (
+        db.query(LeadActivity.business_id, LeadActivity.to_value)
+        .filter(LeadActivity.kind == ActivityKind.STATUS_CHANGE.value, LeadActivity.business_id.in_(visible))
+        .distinct()
+    )
+    for business_id, to_status in moves:
+        furthest[business_id] = max(furthest[business_id], STAGE_RANK.get(to_status, UNKNOWN_RANK))
+
+    outcomes = {
+        business_id: (value, reason)
+        for business_id, value, reason in db.query(
+            LeadOutcome.business_id, LeadOutcome.value, LeadOutcome.loss_reason
+        ).filter(LeadOutcome.business_id.in_(visible))
+    }
+
+    leads = []
+    for business_id, status, geography_id in rows:
+        value, reason = outcomes.get(business_id, (None, None))
+        rank = max(furthest[business_id], STAGE_RANK.get(status, UNKNOWN_RANK))
+        leads.append(_PipelineLead(business_id, status, geography_id, rank, value or 0.0, reason))
+    return leads
+
+
+def _win_rate(won: int, lost: int) -> float | None:
+    return round(won / (won + lost), WIN_RATE_DIGITS) if won + lost else None
+
+
+def get_pipeline(db: Session, profile_id: int | None) -> dict:
+    leads = _pipeline_leads(db, profile_id)
+    won = [lead for lead in leads if lead.status == WON_STATUS]
+    lost = [lead for lead in leads if lead.status == LOST_STATUS]
+    revenue = sum(lead.value for lead in won)
+
+    stages = [
+        {
+            "status": status,
+            "current": sum(1 for lead in leads if lead.status == status),
+            "reached": len(leads) if rank == 0 else sum(1 for lead in leads if lead.rank >= rank),
+        }
+        for status, rank in STAGE_RANK.items()
+    ]
+    reasons: dict[str | None, int] = defaultdict(int)
+    for lead in lost:
+        reasons[lead.loss_reason] += 1
+
+    return {
+        "currency": settings.DEAL_CURRENCY,
+        "total": len(leads),
+        "open": len(leads) - len(won) - len(lost),
+        "won": len(won),
+        "lost": len(lost),
+        "win_rate": _win_rate(len(won), len(lost)),
+        "revenue": round(revenue, PRICE_DIGITS),
+        "average_deal": round(revenue / len(won), PRICE_DIGITS) if won else None,
+        "stages": stages,
+        "loss_reasons": [
+            {"reason": reason, "count": count}
+            for reason, count in sorted(reasons.items(), key=lambda item: (-item[1], str(item[0])))
+        ],
+    }
+
+
+Members = dict[str, tuple[str, set[int]]]
+
+
+def _members_by_source(db: Session, visible) -> Members:
+    members: dict[str, set[int]] = defaultdict(set)
+    for key, business_id in db.query(SourceRecord.source_key, SourceRecord.business_id).filter(
+        SourceRecord.business_id.in_(visible)
+    ):
+        members[key].add(business_id)
+    return {key: (source_label(key), ids) for key, ids in members.items()}
+
+
+def _members_by_segment(db: Session, visible, profile_id: int, leads: list[_PipelineLead]) -> Members:
+    names = {
+        segment_id: (slug, name)
+        for segment_id, slug, name in db.query(ProfileSegment.id, ProfileSegment.slug, ProfileSegment.name)
+    }
+    classified: set[int] = set()
+    members: Members = {}
+    for business_id, segment_id in db.query(BusinessClassification.business_id, BusinessClassification.segment_id).filter(
+        BusinessClassification.profile_id == profile_id, BusinessClassification.business_id.in_(visible)
+    ):
+        slug, name = names.get(segment_id, (UNCLASSIFIED, UNCLASSIFIED_NAME))
+        classified.add(business_id)
+        members.setdefault(slug, (name, set()))[1].add(business_id)
+    for lead in leads:
+        if lead.id not in classified:
+            members.setdefault(UNCLASSIFIED, (UNCLASSIFIED_NAME, set()))[1].add(lead.id)
+    return members
+
+
+def _members_by_city(db: Session, leads: list[_PipelineLead]) -> Members:
+    names = {geography_id: name for geography_id, name in db.query(Geography.id, Geography.name)}
+    members: Members = {}
+    for lead in leads:
+        known = lead.geography_id in names
+        key = str(lead.geography_id) if known else UNKNOWN_CITY
+        members.setdefault(key, (names[lead.geography_id] if known else UNKNOWN_CITY_NAME, set()))[1].add(lead.id)
+    return members
+
+
+def get_conversion(db: Session, profile_id: int | None, group_by: ConversionGroup) -> dict:
+    if group_by == ConversionGroup.SEGMENT and profile_id is None:
+        raise BadRequestException(SEGMENT_NEEDS_PROFILE_MESSAGE)
+    leads = _pipeline_leads(db, profile_id)
+    by_id = {lead.id: lead for lead in leads}
+    visible = _visible_ids(db, profile_id)
+
+    if group_by == ConversionGroup.SOURCE:
+        groups = _members_by_source(db, visible)
+    elif group_by == ConversionGroup.SEGMENT:
+        groups = _members_by_segment(db, visible, profile_id, leads)
+    else:
+        groups = _members_by_city(db, leads)
+
+    def reached(members: list[_PipelineLead], status: str) -> int:
+        return sum(1 for lead in members if lead.rank >= STAGE_RANK[status])
+
+    rows = []
+    for key, (name, ids) in groups.items():
+        members = [by_id[business_id] for business_id in ids if business_id in by_id]
+        won = [lead for lead in members if lead.status == WON_STATUS]
+        lost = [lead for lead in members if lead.status == LOST_STATUS]
+        rows.append({
+            "key": key,
+            "name": name,
+            "leads": len(members),
+            "contacted": reached(members, LeadStatus.CONTACTED.value),
+            "interested": reached(members, LeadStatus.INTERESTED.value),
+            "meeting": reached(members, LeadStatus.MEETING.value),
+            "quoted": reached(members, LeadStatus.QUOTED.value),
+            "won": len(won),
+            "lost": len(lost),
+            "win_rate": _win_rate(len(won), len(lost)),
+            "revenue": round(sum(lead.value for lead in won), PRICE_DIGITS),
+        })
+    rows.sort(key=lambda row: (-row["leads"], row["name"]))
+    return {"group_by": group_by, "data": rows, "count": len(rows)}

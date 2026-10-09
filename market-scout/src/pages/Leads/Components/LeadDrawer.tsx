@@ -37,6 +37,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { LEAD_STATUS_OPTIONS } from "@/constants";
 import type { LeadStatus } from "@/constants/lead-status.constants";
 import { useGetAssignees, useGetBusiness, useMarkDoNotContact, useUpdateBusiness } from "@/hooks/api/businesses.queries";
+import { useGetPipelineConfig } from "@/hooks/api/pipeline.queries";
+import type { TUpdateBusinessBody } from "@/api/services/businesses/businesses.request.types";
+import type { TOutcomeInput } from "@/api/services/pipeline/pipeline.request.types";
+import type { ClosingStatus } from "@/constants/pipeline.constants";
+import { isClosingStatus } from "@/utils/pipeline.utils";
+import LeadTasks from "./LeadTasks";
+import LeadTimeline from "./LeadTimeline";
+import OutcomeDialog from "./OutcomeDialog";
+import OutcomeSummary from "./OutcomeSummary";
 import { showToast } from "@/lib/toast";
 import { formatDate, formatDateTime, formatPhone, getSourceLabel, whatsappLink } from "@/utils/format.utils";
 import { NOTES_MAX_LENGTH, REASON_MAX_LENGTH } from "@/constants/limits.constants";
@@ -145,18 +154,53 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
     const { mutateAsync: updateLead, isPending: isSaving } = useUpdateBusiness();
     const { mutateAsync: markDoNotContact, isPending: isBlocking } = useMarkDoNotContact();
     const { data: assignees = [] } = useGetAssignees();
+    const currency = useGetPipelineConfig();
 
     const [notes, setNotes] = useState(lead.notes ?? "");
     const [showBlock, setShowBlock] = useState(false);
     const [blockReason, setBlockReason] = useState("");
+    const [pendingStatus, setPendingStatus] = useState<ClosingStatus | null>(null);
+    const [isEditingOutcome, setIsEditingOutcome] = useState(false);
 
     const notesChanged = notes.trim() !== (lead.notes ?? "");
     const topClassification = lead.classifications[0];
     const contacts = [...lead.contacts].sort((a, b) => a.kind.localeCompare(b.kind) || a.id - b.id);
 
-    const save = async (body: Parameters<typeof updateLead>[0]["body"], message: string) => {
+    const currentClosingStatus = isClosingStatus(lead.lead_status) ? lead.lead_status : null;
+    const dialogStatus = pendingStatus ?? (isEditingOutcome ? currentClosingStatus : null);
+    const canSkipOutcome = pendingStatus !== null;
+
+    const save = async (body: TUpdateBusinessBody, message: string) => {
         await updateLead({ id: lead.id, body });
         showToast.success(message);
+    };
+
+    const onStatusChange = (value: string) => {
+        if (isClosingStatus(value)) {
+            setPendingStatus(value);
+            return;
+        }
+        void save({ lead_status: value as LeadStatus }, "Status updated");
+    };
+
+    const closeOutcomeDialog = () => {
+        setPendingStatus(null);
+        setIsEditingOutcome(false);
+    };
+
+    const saveOutcome = async (outcome: TOutcomeInput) => {
+        const body: TUpdateBusinessBody = pendingStatus ? { lead_status: pendingStatus, outcome } : { outcome };
+        await save(body, pendingStatus ? "Status updated" : "Deal details saved");
+        closeOutcomeDialog();
+    };
+
+    const skipOutcome = async () => {
+        if (pendingStatus) await save({ lead_status: pendingStatus }, "Status updated");
+        closeOutcomeDialog();
+    };
+
+    const startEditingOutcome = () => {
+        setIsEditingOutcome(true);
     };
 
     const handleBlock = async () => {
@@ -212,7 +256,7 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
                         <Select
                             value={lead.lead_status}
                             disabled={isSaving}
-                            onValueChange={(value) => save({ lead_status: value as LeadStatus }, "Status updated")}
+                            onValueChange={onStatusChange}
                         >
                             <SelectTrigger id="lead-status" className="w-full">
                                 <SelectValue />
@@ -244,6 +288,7 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
                         </Select>
                     </div>
                 </div>
+                {lead.outcome && <OutcomeSummary outcome={lead.outcome} currency={currency} onEdit={startEditingOutcome} />}
                 <div className="space-y-1.5">
                     <Label htmlFor="lead-notes">Notes</Label>
                     <Textarea
@@ -265,6 +310,14 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
                         </Button>
                     </div>
                 </div>
+            </Section>
+
+            <Section title="Follow-ups">
+                <LeadTasks businessId={lead.id} />
+            </Section>
+
+            <Section title="History">
+                <LeadTimeline businessId={lead.id} />
             </Section>
 
             <Section title="Contact">
@@ -349,6 +402,18 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
                     Mark do not contact
                 </Button>
             </Section>
+
+            <OutcomeDialog
+                status={dialogStatus}
+                leadName={lead.name}
+                currency={currency}
+                initial={pendingStatus ? null : lead.outcome}
+                isSaving={isSaving}
+                canSkip={canSkipOutcome}
+                onSave={saveOutcome}
+                onSkip={skipOutcome}
+                onClose={closeOutcomeDialog}
+            />
 
             <ConfirmationModal
                 open={showBlock}

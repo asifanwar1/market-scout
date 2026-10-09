@@ -49,8 +49,10 @@ def list_assignees(db: Session = Depends(get_db), _=Depends(get_current_user)):
 
 
 @router.post("/bulk-update", response_model=BulkUpdateResponse)
-def bulk_update_businesses(update_in: BulkBusinessUpdate, db: Session = Depends(get_db), _=Depends(get_current_user)):
-    updated = service.bulk_update_businesses(db, update_in)
+def bulk_update_businesses(
+    update_in: BulkBusinessUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    updated = service.bulk_update_businesses(db, update_in, current_user.id)
     sheets_service.notify_changed()
     return {"updated": updated}
 
@@ -69,9 +71,12 @@ def get_business(business_id: int, db: Session = Depends(get_db), _=Depends(get_
 
 @router.patch("/{business_id}", response_model=BusinessDetailResponse)
 def update_business(
-    business_id: int, update_in: BusinessUpdate, db: Session = Depends(get_db), _=Depends(get_current_user)
+    business_id: int,
+    update_in: BusinessUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    business = service.update_business(db, business_id, update_in)
+    business = service.update_business(db, business_id, update_in, current_user.id)
     sheets_service.notify_changed()
     return business
 

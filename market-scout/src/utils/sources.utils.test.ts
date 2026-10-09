@@ -18,6 +18,8 @@ const source = (overrides: Partial<TSource>): TSource => ({
     requires_dataset: false,
     dataset_ready: true,
     dataset_note: null,
+    download_command: null,
+    terms_note: null,
     is_available: false,
     ...overrides,
 });

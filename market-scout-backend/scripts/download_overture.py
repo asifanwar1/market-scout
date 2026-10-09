@@ -5,12 +5,11 @@ import time
 import httpx
 
 from app.core.config import settings
-from app.core.scouting import overture_store
+from app.core.constants import COUNTRY_CODE_PAKISTAN, PAKISTAN_BOUNDS
+from app.core.scouting import place_store
 
 CATALOG_URL = "https://stac.overturemaps.org/catalog.json"
 BUCKET = "s3://overturemaps-us-west-2/release"
-BBOX = {"west": 60.5, "east": 77.9, "south": 23.5, "north": 37.2}
-COUNTRY = "PK"
 FETCH_ROWS = 20000
 
 _QUERY = """
@@ -84,8 +83,8 @@ def main() -> None:
 
     print(f"Overture release {release}: reading Pakistan's places (this takes a few minutes)...", flush=True)
     started = time.time()
-    cursor = connection.execute(_QUERY.format(source=source, country=COUNTRY, **BBOX))
-    count = overture_store.write_store(settings.OVERTURE_DB_PATH, stream_places(cursor), release)
+    cursor = connection.execute(_QUERY.format(source=source, country=COUNTRY_CODE_PAKISTAN, **PAKISTAN_BOUNDS))
+    count = place_store.write_store(settings.OVERTURE_DB_PATH, stream_places(cursor), release)
     print(f"Done in {time.time() - started:.0f}s: {count:,} places saved to {settings.OVERTURE_DB_PATH}")
     print("No restart needed: the Overture Maps source uses the new file from its next search.")
 

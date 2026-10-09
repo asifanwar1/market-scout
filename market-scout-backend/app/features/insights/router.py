@@ -9,10 +9,13 @@ from app.features.auth.dependencies import get_current_user
 from app.features.insights import service
 from app.features.insights.schemas import (
     Bucket,
+    ConversionGroup,
+    ConversionResponse,
     CoverageResponse,
     GapsResponse,
     MoversResponse,
     OverviewResponse,
+    PipelineResponse,
     SourcesResponse,
     TimelineResponse,
 )
@@ -76,3 +79,18 @@ def movers(
     _=Depends(get_current_user),
 ):
     return service.get_movers(db, profile_id, days, limit)
+
+
+@router.get("/pipeline", response_model=PipelineResponse)
+def pipeline(profile_id: Optional[int] = Query(None), db: Session = Depends(get_db), _=Depends(get_current_user)):
+    return service.get_pipeline(db, profile_id)
+
+
+@router.get("/conversion", response_model=ConversionResponse)
+def conversion(
+    group_by: ConversionGroup = Query(ConversionGroup.SOURCE),
+    profile_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    return service.get_conversion(db, profile_id, group_by)

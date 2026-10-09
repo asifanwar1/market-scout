@@ -4,6 +4,7 @@ export enum APP_ROUTES {
 
     LEADS = "/leads",
     INSIGHTS = "/insights",
+    TASKS = "/tasks",
     DO_NOT_CONTACT = "/do-not-contact",
 
     RUNS = "/runs",

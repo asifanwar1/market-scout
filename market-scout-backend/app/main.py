@@ -24,6 +24,7 @@ from app.features.imports import service as imports_service
 from app.features.imports.router import router as imports_router
 from app.features.imports.worker import import_worker
 from app.features.insights.router import router as insights_router
+from app.features.pipeline.router import router as pipeline_router
 from app.features.profiles.router import router as profiles_router
 from app.features.runs import service as runs_service
 from app.features.runs.router import router as runs_router
@@ -32,7 +33,11 @@ from app.features.sheets.router import router as sheets_router
 from app.features.sources.router import router as sources_router
 from app.features.users.router import router as users_router
 
+URL_LOGGING_LIBRARIES = ("httpx", "httpcore")
+
 logging.basicConfig(level=settings.LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+for library in URL_LOGGING_LIBRARIES:
+    logging.getLogger(library).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +100,7 @@ app.include_router(exports_router, prefix="/api/v1/exports", tags=["Exports"])
 app.include_router(sheets_router, prefix="/api/v1/sheets", tags=["Google Sheets"])
 app.include_router(insights_router, prefix="/api/v1/insights", tags=["Insights"])
 app.include_router(imports_router, prefix="/api/v1/imports", tags=["Imports"])
+app.include_router(pipeline_router, prefix="/api/v1/pipeline", tags=["Pipeline"])
 
 
 @app.get("/")

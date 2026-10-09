@@ -11,9 +11,12 @@ import {
     SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
+    SidebarMenuBadge,
     SidebarMenuButton,
     SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { useGetTaskSummary } from "@/hooks/api/pipeline.queries";
+import { todayStamp } from "@/utils/pipeline.utils";
 import { APP_ROUTES } from "@/routes/appRoutes";
 import { useStore } from "@/store";
 import { menuGroups } from "./menu.config";
@@ -25,6 +28,8 @@ type TAppSidebarProps = {
 const AppSidebar = ({ onLogoutClick }: TAppSidebarProps) => {
     const { pathname } = useLocation();
     const user = useStore((state) => state.user);
+    const { data: taskSummary } = useGetTaskSummary(todayStamp());
+    const tasksNeedingAttention = (taskSummary?.overdue ?? 0) + (taskSummary?.due_today ?? 0);
 
     const visibleGroups = menuGroups.filter(
         (group) => !group.roles || (user && group.roles.includes(user.role)),
@@ -43,6 +48,9 @@ const AppSidebar = ({ onLogoutClick }: TAppSidebarProps) => {
                         <span>{item.label}</span>
                     </Link>
                 </SidebarMenuButton>
+                {item.path === APP_ROUTES.TASKS && tasksNeedingAttention > 0 && (
+                    <SidebarMenuBadge>{tasksNeedingAttention}</SidebarMenuBadge>
+                )}
             </SidebarMenuItem>
         );
         return (

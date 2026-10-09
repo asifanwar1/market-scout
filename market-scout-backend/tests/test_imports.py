@@ -461,7 +461,7 @@ NAME_ONLY_ROWS = [
 
 @pytest.fixture()
 def overture_places(tmp_path, monkeypatch):
-    from app.core.scouting import overture_store
+    from app.core.scouting import place_store
 
     path = tmp_path / "overture.sqlite"
     monkeypatch.setattr(settings, "OVERTURE_DB_PATH", str(path))
@@ -472,7 +472,7 @@ def overture_places(tmp_path, monkeypatch):
             "latitude": latitude, "longitude": longitude, "phones": ["+923004309775"], "websites": ["https://kashif.pk"], **extra,
         }
 
-    overture_store.write_store(
+    place_store.write_store(
         path,
         [
             place("gers-kashif", "Kashif Traders"),

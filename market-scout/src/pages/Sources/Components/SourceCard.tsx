@@ -1,4 +1,4 @@
-import { CheckCircle2, Database, KeyRound, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Database, KeyRound, Loader2, TriangleAlert, XCircle } from "lucide-react";
 import { useState } from "react";
 
 import type { TSource } from "@/api/services/sources/sources.response.types";
@@ -108,9 +108,9 @@ const SourceCard = ({ source }: TSourceCardProps) => {
                             <div className="space-y-1">
                                 <p className="font-medium">Data on this computer</p>
                                 <p className={source.dataset_ready ? "text-muted-foreground" : "text-warning-foreground"}>{source.dataset_note}</p>
-                                {source.dataset_ready && (
+                                {source.dataset_ready && source.download_command && (
                                     <p className="text-xs text-muted-foreground">
-                                        To refresh it, run <span className="font-mono">python -m scripts.download_overture</span> in the backend folder.
+                                        To refresh it, run <span className="font-mono">{source.download_command}</span> in the backend folder.
                                     </p>
                                 )}
                             </div>
@@ -170,6 +170,16 @@ const SourceCard = ({ source }: TSourceCardProps) => {
                                     Billed per request by the provider. Every run shows an estimate first and can carry a spending cap.
                                 </p>
                             )}
+                        </div>
+                    )}
+
+                    {source.terms_note && (
+                        <div className="flex items-start gap-3 text-sm">
+                            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
+                            <div className="space-y-1">
+                                <p className="font-medium">Storage terms</p>
+                                <p className="text-muted-foreground">{source.terms_note}</p>
+                            </div>
                         </div>
                     )}
 

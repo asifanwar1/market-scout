@@ -12,7 +12,9 @@ import CoverageMatrix from "./Components/CoverageMatrix";
 import GapsCard from "./Components/GapsCard";
 import GrowthChart from "./Components/GrowthChart";
 import MoversCard from "./Components/MoversCard";
+import ConversionCard from "./Components/ConversionCard";
 import OverviewCards from "./Components/OverviewCards";
+import PipelineCard from "./Components/PipelineCard";
 import SourceQualityCard from "./Components/SourceQualityCard";
 import { INSIGHTS_PAGE_DESCRIPTION, INSIGHTS_PAGE_TITLE } from "./Insights.constants";
 import { useInsightsPage } from "./Insights.Container";
@@ -34,6 +36,8 @@ const Insights = () => {
         timeline,
         sources,
         movers,
+        pipeline,
+        conversion,
         onProfileChange,
     } = page;
 
@@ -82,6 +86,9 @@ const Insights = () => {
                     {overview.data && <OverviewCards overview={overview.data} />}
 
                     {isEmpty && <EmptyState icon={BarChart3} title="No leads yet" description={emptyDescription} action={startRunAction} />}
+
+                    <PipelineCard pipeline={pipeline.data} />
+                    <ConversionCard page={page} conversion={conversion.data} />
 
                     <GrowthChart page={page} timeline={timeline.data} />
                     <div className="grid gap-6 xl:grid-cols-2">

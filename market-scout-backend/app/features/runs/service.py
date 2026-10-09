@@ -13,10 +13,8 @@ from app.core.constants import FIRST_PAGE, PRICE_DIGITS, SECONDS_PER_MINUTE
 from app.core.database import WorkerSessionLocal, WriteSessionLocal
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.core.scouting.enrichment.website import EnrichmentError, WebsiteContacts, WebsiteEnricher
-from app.core.scouting.sources import osm, overture
-from app.core.scouting.sources.base import Source, SourceAuthError, SourceError
-from app.core.scouting.sources.google_places import MAX_PAGES
-from app.core.scouting.sources.registry import ENRICHMENT_KEY, KIND_DISCOVERY, get_source_info
+from app.core.scouting.sources.base import KIND_DISCOVERY, Source, SourceAuthError, SourceError
+from app.core.scouting.sources.registry import CATALOG, ENRICHMENT_KEY, get_source_info
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery
 from app.features.businesses import ingest as businesses_ingest
 from app.features.businesses.ingest import IngestContext, ProfileScoring
@@ -29,8 +27,6 @@ from app.features.runs.worker import worker
 from app.features.sheets import service as sheets_service
 from app.features.sources import service as sources_service
 
-PAID_SEARCH_SECONDS = 3
-OSM_SEARCH_OVERHEAD_SECONDS = 3
 TASK_ERROR_MAX_LENGTH = 500
 
 
@@ -68,11 +64,12 @@ class TaskPlan:
 
 
 def _term_supported(source_key: str, term: ProfileSearchTerm) -> bool:
-    if source_key == osm.SOURCE_KEY:
-        return bool(term.osm_filter)
-    if source_key == overture.SOURCE_KEY:
-        return overture.supports(term.osm_filter)
-    return True
+    return get_source_info(source_key).supports_term(term.osm_filter)
+
+
+def _filter_dependent_source_names() -> str:
+    names = [info.name for info in CATALOG if info.kind == KIND_DISCOVERY and info.supports_filter is not None]
+    return ", ".join(names[:-1]) + f" and {names[-1]}" if len(names) > 1 else "".join(names)
 
 
 def _resolve_cities(db: Session, geography_ids: list[int]) -> list[Geography]:
@@ -141,7 +138,7 @@ def _plan(db: Session, run_in: RunCreate) -> tuple[Profile, list[Geography], lis
     if not plans:
         raise BadRequestException(
             "Nothing to search: no active search terms fit the chosen sources "
-            "(OpenStreetMap and Overture Maps only search terms that have an OSM filter)"
+            f"({_filter_dependent_source_names()} only search terms that have an OSM filter)"
         )
     return profile, cities, plans
 
@@ -169,12 +166,18 @@ def _too_many_searches_message(count: int) -> str:
     )
 
 
+def _requests_possible(entry: dict) -> int:
+    searches = entry["tasks"] - entry["tasks_skipped"]
+    return searches * get_source_info(entry["source_key"]).max_requests_per_search
+
+
 def estimate_run(db: Session, run_in: RunCreate) -> dict:
     profile, cities, plans = _plan(db, run_in)
     searched = set() if run_in.refresh else _recently_searched(db, plans)
 
     by_source = []
     paid_requests_max = 0
+    paid_cost_max = 0.0
     seconds = 0.0
     tasks_to_run_total = 0
 
@@ -188,14 +191,13 @@ def estimate_run(db: Session, run_in: RunCreate) -> dict:
         max_requests = None
         cost = None
         if info.is_paid:
-            max_requests = to_run * MAX_PAGES
+            max_requests = to_run * info.max_requests_per_search
             if run_in.max_paid_requests is not None:
                 max_requests = min(max_requests, run_in.max_paid_requests)
-            cost = round(max_requests * settings.PLACES_COST_PER_REQUEST_USD, PRICE_DIGITS)
+            cost = round(max_requests * info.cost_per_request(settings), PRICE_DIGITS)
             paid_requests_max += max_requests
-            seconds += to_run * PAID_SEARCH_SECONDS
-        elif source_key == osm.SOURCE_KEY:
-            seconds += to_run * (settings.OVERPASS_MIN_INTERVAL_SECONDS + OSM_SEARCH_OVERHEAD_SECONDS)
+            paid_cost_max += max_requests * info.cost_per_request(settings)
+        seconds += to_run * info.search_seconds(settings)
 
         by_source.append(
             {
@@ -228,7 +230,7 @@ def estimate_run(db: Session, run_in: RunCreate) -> dict:
                 f"No request cap is set: {entry['name']} may make up to {entry['max_requests']} billable "
                 f"requests (about ${entry['estimated_cost_usd']:.2f} at the configured rate)."
             )
-        elif (entry["tasks"] - entry["tasks_skipped"]) * MAX_PAGES > run_in.max_paid_requests:
+        elif _requests_possible(entry) > run_in.max_paid_requests:
             warnings.append(
                 f"The cap of {run_in.max_paid_requests} requests may stop {entry['name']} before every search runs."
             )
@@ -241,7 +243,7 @@ def estimate_run(db: Session, run_in: RunCreate) -> dict:
         "tasks_skipped": tasks_skipped,
         "by_source": by_source,
         "paid_requests_max": paid_requests_max,
-        "estimated_cost_usd": round(paid_requests_max * settings.PLACES_COST_PER_REQUEST_USD, PRICE_DIGITS),
+        "estimated_cost_usd": round(paid_cost_max, PRICE_DIGITS),
         "estimated_minutes": math.ceil(seconds / SECONDS_PER_MINUTE) if tasks_to_run_total else 0,
         "allowed": allowed,
         "warnings": warnings,

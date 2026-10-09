@@ -3,22 +3,16 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.core.exceptions import BadRequestException, NotFoundException
-from app.core.scouting import overture_store
-from app.core.scouting.sources import google_places
-from app.core.scouting.sources.base import Source
+from app.core.scouting import place_store
+from app.core.scouting.sources.base import KIND_DISCOVERY, Source, SourceBuildContext, SourceInfo
 from app.core.scouting.sources.registry import (
     CATALOG,
     ENRICHMENT_KEY,
-    KIND_DISCOVERY,
-    SourceInfo,
     build_source,
     get_source_info,
 )
 from app.features.sources.models import DataSource
 from app.features.sources.schemas import SourceUpdate
-
-_ENV_KEYS = {google_places.SOURCE_KEY: lambda: settings.GOOGLE_PLACES_API_KEY}
-
 
 _PLACEHOLDER_DOMAINS = ("example.com", "example.org", "example.net", "test", "invalid", "localhost")
 
@@ -63,8 +57,10 @@ def _saved_key(row: DataSource) -> tuple[str | None, bool]:
 
 
 def _env_key(key: str) -> str | None:
-    getter = _ENV_KEYS.get(key)
-    return (getter() or None) if getter else None
+    info = get_source_info(key)
+    if info is None or info.api_key_setting is None:
+        return None
+    return getattr(settings, info.api_key_setting) or None
 
 
 def _resolve_key(row: DataSource) -> tuple[str | None, str | None, bool]:
@@ -78,12 +74,12 @@ def _resolve_key(row: DataSource) -> tuple[str | None, str | None, bool]:
 
 
 def _dataset_status(info: SourceInfo) -> tuple[bool, str | None]:
-    if not info.requires_dataset:
+    if info.dataset is None:
         return True, None
     try:
-        found = overture_store.read_info(settings.OVERTURE_DB_PATH)
-    except overture_store.StoreError as exc:
-        return False, f"{exc} In the backend folder run: python -m scripts.download_overture"
+        found = place_store.read_info(info.dataset.path(settings))
+    except place_store.StoreError as exc:
+        return False, f"{exc} In the backend folder run: {info.dataset.download_command}"
     return True, f"Release {found.release} on this computer: {found.places:,} places in Pakistan."
 
 
@@ -106,6 +102,8 @@ def _to_view(info: SourceInfo, row: DataSource) -> dict:
         "requires_dataset": info.requires_dataset,
         "dataset_ready": dataset_ready,
         "dataset_note": dataset_note,
+        "download_command": info.dataset.download_command if info.dataset else None,
+        "terms_note": info.terms_note,
         "is_available": row.is_enabled and (has_key or not info.requires_api_key) and dataset_ready,
     }
 
@@ -169,15 +167,8 @@ def get_available_discovery_keys(db: Session) -> list[str]:
 def build_sources(db: Session, keys: list[str]) -> dict[str, Source]:
     sources: dict[str, Source] = {}
     for key in keys:
-        sources[key] = build_source(
-            key,
-            api_key=resolve_api_key(db, key),
-            user_agent=user_agent(),
-            overpass_url=settings.OVERPASS_URL,
-            overpass_min_interval_s=settings.OVERPASS_MIN_INTERVAL_SECONDS,
-            overture_path=settings.OVERTURE_DB_PATH,
-            overture_min_confidence=settings.OVERTURE_MIN_CONFIDENCE,
-        )
+        context = SourceBuildContext(api_key=resolve_api_key(db, key), user_agent=user_agent(), settings=settings)
+        sources[key] = build_source(key, context)
     return sources
 
 

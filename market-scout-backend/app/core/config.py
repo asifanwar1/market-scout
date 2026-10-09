@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     OVERPASS_MIN_INTERVAL_SECONDS: float = 5.0
     GOOGLE_PLACES_API_KEY: str = ""
     PLACES_COST_PER_REQUEST_USD: float = 0.035
+    DEAL_CURRENCY: str = "USD"
+    HERE_API_KEY: str = ""
+    HERE_COST_PER_REQUEST_USD: float = 0.0
+    TOMTOM_API_KEY: str = ""
+    TOMTOM_COST_PER_REQUEST_USD: float = 0.0
     RUN_WORKER_ENABLED: bool = True
     RUN_MAX_TASKS: int = 2000
     RUN_TASK_CACHE_DAYS: int = 7
@@ -33,6 +38,8 @@ class Settings(BaseSettings):
 
     OVERTURE_DB_PATH: str = "./data/overture.sqlite"
     OVERTURE_MIN_CONFIDENCE: float = 0.3
+
+    FOURSQUARE_DB_PATH: str = "./data/foursquare.sqlite"
 
     IMPORTS_DIR: str = "./imports"
     IMPORT_MAX_MB: int = 10

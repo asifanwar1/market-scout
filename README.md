@@ -9,10 +9,11 @@ A reusable business-discovery and market-intelligence system. It finds small bus
 
 ## What it does
 
-- **Finds businesses** in chosen cities from free sources (OpenStreetMap; Overture Maps, an open dataset kept on your computer; plus reading each business's own website for email and WhatsApp) and, when a key is saved on the Sources screen, the Google Places API. No code change to switch; every run shows an estimate first and can carry a spending cap.
+- **Finds businesses** in chosen cities from free sources (OpenStreetMap; Overture Maps and Foursquare Places, open datasets kept on your computer; plus reading each business's own website for email and WhatsApp) and, when a key is saved on the Sources screen, the paid Google Places, HERE and TomTom searches (check their storage terms first). No code change to switch; every run shows an estimate first and can carry a spending cap.
 - **Imports lists you already have** (CSV or Excel, such as the government's certified-installer lists) through the same matching, scoring and do-not-contact checks, and can look up the missing phones of a name-only list in Overture Maps.
 - **Merges and scores** what different sources report into one lead per business, sorted best first.
 - **Sales work the leads in the app**: filter, call or WhatsApp, record status and notes, assign, bulk-update, export to CSV.
+- **Tracks leads through to deals**: a history of what happened on each lead, follow-up tasks with due dates, the deal value or the reason a lead was lost, and reports of what turns into customers by source, segment and city.
 - **Respects do-not-contact**: anyone asking to be left alone is excluded everywhere (lists, exports, the sheet, insights) and is refused if a later search finds them again.
 - **Mirrors the leads to a Google Sheet** (one way, app to sheet) for people who prefer a spreadsheet.
 - **Shows where the market is thin**: coverage by city and type, cities nobody has searched, which source is worth its cost, which businesses are growing.

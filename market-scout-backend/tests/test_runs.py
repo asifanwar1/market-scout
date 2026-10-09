@@ -88,6 +88,10 @@ def enable_places(db):
     sources_service.update_source(db, "google_places", SourceUpdate(api_key="test-key-12345", is_enabled=True))
 
 
+def enable_paid(db, key):
+    sources_service.update_source(db, key, SourceUpdate(api_key=f"{key}-test-key-12345", is_enabled=True))
+
+
 def payload(profile, cities, **overrides):
     data = {
         "profile_id": profile.id,
@@ -236,7 +240,7 @@ def test_source_without_matching_terms_is_refused(client, admin_user, auth_heade
 
 @pytest.fixture()
 def overture_data(tmp_path, monkeypatch):
-    from app.core.scouting import overture_store
+    from app.core.scouting import place_store
 
     path = tmp_path / "overture.sqlite"
     monkeypatch.setattr(settings, "OVERTURE_DB_PATH", str(path))
@@ -247,7 +251,7 @@ def overture_data(tmp_path, monkeypatch):
             "latitude": latitude, "longitude": longitude, "phones": ["+923001234567"], **extra,
         }
 
-    overture_store.write_store(
+    place_store.write_store(
         path,
         [
             place("o1", "Noor Solar Traders", "solar_installation", 31.52, 74.36, phones=["+923001112222"], websites=["https://noor.pk"]),
@@ -285,7 +289,7 @@ def test_overture_searches_only_the_terms_it_can_translate_and_costs_nothing(
     assert estimate["estimated_cost_usd"] == 0 and estimate["estimated_minutes"] == 0
 
 
-def test_a_run_over_overture_stores_what_is_in_the_city_with_its_contacts(
+def test_a_run_over_place_stores_what_is_in_the_city_with_its_contacts(
     client, admin_user, auth_headers, world, db_session, overture_data
 ):
     lahore = city(db_session, "lahore")
@@ -779,3 +783,61 @@ def test_worker_start_is_idempotent_and_stoppable():
     assert worker._thread is thread and worker.is_running
     worker.stop()
     assert not worker.is_running
+
+
+def test_estimate_prices_each_paid_source_with_its_own_rate_and_page_limit(client, admin_user, auth_headers, world, db_session, monkeypatch):
+    monkeypatch.setattr(settings, "PLACES_COST_PER_REQUEST_USD", 0.5)
+    monkeypatch.setattr(settings, "HERE_COST_PER_REQUEST_USD", 0.25)
+    monkeypatch.setattr(settings, "TOMTOM_COST_PER_REQUEST_USD", 0.125)
+    for key in ("google_places", "here", "tomtom"):
+        enable_paid(db_session, key)
+
+    body = client.post(
+        "/api/v1/runs/estimate", headers=auth_headers(admin_user),
+        json=payload(world, [city(db_session, "lahore")], source_keys=["google_places", "here", "tomtom"]),
+    ).json()
+
+    searches = dealer_terms(world)
+    by_source = {entry["source_key"]: entry for entry in body["by_source"]}
+    assert by_source["google_places"]["max_requests"] == searches * 3
+    assert by_source["google_places"]["estimated_cost_usd"] == round(searches * 3 * 0.5, 2)
+    assert by_source["here"]["max_requests"] == searches and by_source["here"]["estimated_cost_usd"] == round(searches * 0.25, 2)
+    assert by_source["tomtom"]["max_requests"] == searches * 3
+    assert by_source["tomtom"]["estimated_cost_usd"] == round(searches * 3 * 0.125, 2)
+    assert body["paid_requests_max"] == searches * 7
+    assert body["estimated_cost_usd"] == round(searches * (3 * 0.5 + 0.25 + 3 * 0.125), 2)
+
+
+def test_the_cap_warning_uses_each_sources_own_page_limit(client, admin_user, auth_headers, world, db_session):
+    enable_paid(db_session, "here")
+    enable_paid(db_session, "tomtom")
+    searches = dealer_terms(world)
+
+    body = client.post(
+        "/api/v1/runs/estimate", headers=auth_headers(admin_user),
+        json=payload(world, [city(db_session, "lahore")], source_keys=["here", "tomtom"], max_paid_requests=searches),
+    ).json()
+
+    warnings = " ".join(body["warnings"])
+    assert "TomTom Places" in warnings and "HERE Places" not in warnings
+
+
+def test_a_finished_run_costs_the_requests_of_every_paid_source_at_that_sources_rate(
+    client, admin_user, auth_headers, world, db_session, monkeypatch
+):
+    monkeypatch.setattr(settings, "PLACES_COST_PER_REQUEST_USD", 0.5)
+    monkeypatch.setattr(settings, "HERE_COST_PER_REQUEST_USD", 0.25)
+    enable_paid(db_session, "google_places")
+    enable_paid(db_session, "here")
+    run = make_run(client, admin_user, auth_headers, payload(
+        world, [city(db_session, "lahore")], source_keys=["google_places", "here"],
+    ))
+    places = FakeSource("google_places", [raw(1, source="google_places")], requests_per_search=1)
+    here_source = FakeSource("here", [raw(2, source="here")], requests_per_search=2)
+
+    finished = service.execute_run(db_session, run["id"], source_builder=builder(google_places=places, here=here_source))
+
+    searches = dealer_terms(world)
+    assert finished.status == "completed"
+    assert finished.paid_requests_used == searches * 3
+    assert finished.estimated_cost_usd == round(searches * 0.5 + searches * 2 * 0.25, 2)

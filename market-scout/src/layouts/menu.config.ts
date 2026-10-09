@@ -1,5 +1,6 @@
 import {
     BarChart3,
+    CalendarCheck,
     FileSpreadsheet,
     FileUp,
     Layers,
@@ -32,6 +33,7 @@ export const menuGroups: TMenuGroup[] = [
         label: "Work",
         items: [
             { label: "Leads", icon: Users, path: APP_ROUTES.LEADS },
+            { label: "Tasks", icon: CalendarCheck, path: APP_ROUTES.TASKS },
             { label: "Insights", icon: BarChart3, path: APP_ROUTES.INSIGHTS },
             { label: "Do not contact", icon: ShieldOff, path: APP_ROUTES.DO_NOT_CONTACT },
         ],

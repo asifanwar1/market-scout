@@ -1,61 +1,25 @@
-from dataclasses import dataclass
-
-from app.core.scouting.sources import google_places, osm, overture
-from app.core.scouting.sources.base import Source
-
-KIND_DISCOVERY = "discovery"
-KIND_ENRICHMENT = "enrichment"
+from app.core.scouting.sources import foursquare, google_places, here, osm, overture, tomtom
+from app.core.scouting.sources.base import KIND_ENRICHMENT, Source, SourceBuildContext, SourceInfo
 
 ENRICHMENT_KEY = "website_enrichment"
 
-
-@dataclass(frozen=True)
-class SourceInfo:
-    key: str
-    name: str
-    description: str
-    kind: str
-    requires_api_key: bool
-    default_enabled: bool
-    is_paid: bool = False
-    requires_dataset: bool = False
-
+ENRICHMENT_INFO = SourceInfo(
+    key=ENRICHMENT_KEY,
+    name="Website contact enrichment",
+    description="Reads each business's own website for email, WhatsApp and social pages.",
+    kind=KIND_ENRICHMENT,
+    requires_api_key=False,
+    default_enabled=True,
+)
 
 CATALOG: tuple[SourceInfo, ...] = (
-    SourceInfo(
-        key=osm.SOURCE_KEY,
-        name="OpenStreetMap",
-        description="Free community map data. No key needed, but phone numbers are patchy in Pakistan.",
-        kind=KIND_DISCOVERY,
-        requires_api_key=False,
-        default_enabled=True,
-    ),
-    SourceInfo(
-        key=overture.SOURCE_KEY,
-        name="Overture Maps",
-        description="Free open dataset with many more Pakistani businesses and phone numbers than OpenStreetMap. Searches are instant.",
-        kind=KIND_DISCOVERY,
-        requires_api_key=False,
-        default_enabled=True,
-        requires_dataset=True,
-    ),
-    SourceInfo(
-        key=google_places.SOURCE_KEY,
-        name="Google Places API",
-        description="Best coverage of phone numbers and websites. Needs an API key and is billed per request.",
-        kind=KIND_DISCOVERY,
-        requires_api_key=True,
-        default_enabled=False,
-        is_paid=True,
-    ),
-    SourceInfo(
-        key=ENRICHMENT_KEY,
-        name="Website contact enrichment",
-        description="Reads each business's own website for email, WhatsApp and social pages.",
-        kind=KIND_ENRICHMENT,
-        requires_api_key=False,
-        default_enabled=True,
-    ),
+    osm.INFO,
+    overture.INFO,
+    foursquare.INFO,
+    google_places.INFO,
+    here.INFO,
+    tomtom.INFO,
+    ENRICHMENT_INFO,
 )
 
 _BY_KEY = {info.key: info for info in CATALOG}
@@ -79,22 +43,8 @@ def source_label(key: str) -> str:
     return key[len(IMPORT_PREFIX):] if is_import_key(key) else key
 
 
-def build_source(
-    key: str,
-    *,
-    api_key: str | None,
-    user_agent: str,
-    overpass_url: str,
-    overpass_min_interval_s: float,
-    overture_path: str,
-    overture_min_confidence: float,
-) -> Source:
-    if key == osm.SOURCE_KEY:
-        return osm.OsmSource(overpass_url, user_agent, min_interval_s=overpass_min_interval_s)
-    if key == overture.SOURCE_KEY:
-        return overture.OvertureSource(overture_path, min_confidence=overture_min_confidence)
-    if key == google_places.SOURCE_KEY:
-        if not api_key:
-            raise ValueError("Google Places needs an API key")
-        return google_places.GooglePlacesSource(api_key)
-    raise ValueError(f"Unknown discovery source: {key}")
+def build_source(key: str, context: SourceBuildContext) -> Source:
+    info = get_source_info(key)
+    if info is None or info.build is None:
+        raise ValueError(f"Unknown discovery source: {key}")
+    return info.build(context)

@@ -95,11 +95,29 @@ A **run** searches a profile's terms in chosen cities using chosen sources, then
     python -m scripts.download_overture        # a few minutes, ~50 MB at ./data/overture.sqlite (OVERTURE_DB_PATH)
     ```
     Until the file exists the source shows "Needs a download" on the Sources screen and can't be picked for a run. A search term is translated from its OSM filter: `shop=electrical` means "electronics store, electrical supplier, solar installer..." in Overture's categories, and `name~solar` stays a name pattern (`TAG_CATEGORIES` in `app/core/scouting/sources/overture.py` lists the equivalents). A group whose tags have no Overture equivalent finds nothing rather than too much. Places Overture is unsure exist (`OVERTURE_MIN_CONFIDENCE`) and permanently closed ones are left out.
+  - **Foursquare Places** — free, no key, no network at search time, kept on this computer like Overture. It searches Pakistan's places from [Foursquare Open Source Places](https://docs.foursquare.com/data-products/docs/fsq-places-open-source) (Apache 2.0; keep the notice "Copyright 2024 Foursquare Labs, Inc. All rights reserved."). Foursquare no longer publishes the files in a public bucket: register at the [Places Portal](https://places.foursquare.com/), generate an access token, and export or download the `places` table as Parquet files (the portal shows the connection snippet for your tool). Then build the local copy, again whenever you want a newer release:
+    ```bash
+    pip install -r requirements-dev.txt
+    python -m scripts.download_foursquare --parquet "path/to/places/*.parquet" --release 2026-09-30   # ~/data/foursquare.sqlite (FOURSQUARE_DB_PATH)
+    ```
+    The script keeps rows whose `country` is `PK` inside Pakistan's bounding box, marks places with a `date_closed` as closed, and refuses to replace a good copy with an empty one. Until the file exists the source shows "Needs a download" on the Sources screen. Foursquare labels categories as text such as `Retail > Electronics Store`, so a search term's OSM filter is translated to keywords matched anywhere in a label, ignoring case (`TAG_CATEGORIES` in `app/core/scouting/sources/foursquare.py`). **Those keywords are a first guess from the documented schema and were not checked against the real files**: after your first download, search a city and look at what comes back (`sqlite3 data/foursquare.sqlite "SELECT categories, COUNT(*) FROM places GROUP BY categories ORDER BY 2 DESC LIMIT 50"` lists the labels), then adjust the keywords. Foursquare's open data has no confidence score, so every place is stored with confidence 1.
   - **Google Places API** — needs a key (saved encrypted from the UI, or `GOOGLE_PLACES_API_KEY`). Billed per request, so a run can carry a request cap and `POST /runs/estimate` previews the number of searches and cost first.
+  - **HERE Places** and **TomTom Places** — hosted place searches like Google Places: they need a key (saved encrypted from the Sources screen, or `HERE_API_KEY` / `TOMTOM_API_KEY`), start switched off, and are billed per request after each provider's free allowance. HERE answers a search in one request (up to 100 places, no paging); TomTom pages through up to three requests of 100. Set `HERE_COST_PER_REQUEST_USD` and `TOMTOM_COST_PER_REQUEST_USD` to your plan's price once you pass the free allowance: both default to 0, so the run estimate shows $0.00 until you do. The request cap on a run counts every paid source together. **These two were written from the providers' published API documentation and tested against fake responses only, never against the live services**: the first real search is the real test (use the Test connection button, then a small run with a request cap).
+    **Storage terms matter for a lead database.** HERE's platform terms (section 6.3e) limit keeping its results outside the HERE platform to 30 days unless they are used only for internal testing, evaluation or audit records; TomTom's Maps API terms restrict storing and caching search results; Google's terms also limit how long Places data may be stored. Each paid source shows a "Storage terms" note on the Sources screen. Read the current terms for the plan you use before keeping leads found this way long term, and ask the provider in writing if in doubt. These sources send the key in the URL (neither accepts it any other way), so the app turns off request-URL logging for its HTTP library; keep that in mind if you add your own logging.
   - **Website enrichment** — reads each business's own site (robots.txt honoured, public addresses only) for email, WhatsApp and social pages.
 - Results from all sources are merged into one business (same website, same phone with a similar name, or same spot with a near-identical name). Every phone/email records which source reported it, and each source's raw answer is kept.
 - Each run stores per-source quality (found / new / merged / with phone / website / email) so you can see whether a paid source is worth it.
 - A search that finished within `RUN_TASK_CACHE_DAYS` is skipped by later runs unless `refresh` is set. A run interrupted by a restart can be resumed.
+
+### Adding a source
+
+A source is one module in `app/core/scouting/sources/` that describes itself, so nothing else has to change:
+
+1. Write the class with `key`, `search(query, max_requests)` and `test_connection()` (the `Source` protocol in `base.py`). For a dataset kept on this computer, subclass `LocalPlaceSource` in `local_places.py` instead: give it a `label`, a `TAG_CATEGORIES` table (OSM tag to category names or keywords) and a `to_business` method, and the filter translation, SQL and error handling come with it. Set `exact_categories = False` when categories are free text matched by keyword.
+2. Add `build(context)` (it receives the saved or environment API key, the user agent and `settings`) and an `INFO = SourceInfo(...)` with its name, description, whether it needs a key or is paid, the settings name of its fallback key (`api_key_setting`), its `dataset` (file path and download command) and `supports_filter` (which search terms it can answer). A paid source also declares `max_requests_per_search`, `cost_per_request_setting` (the name of the setting holding its price), `seconds_per_search` and a `terms_note` about storing its results; run estimates, caps, run cost and Insights read those instead of assuming Google.
+3. Add `INFO` to `CATALOG` in `registry.py`.
+
+The Sources screen, run planning, validation, the connection test and Insights read everything from `SourceInfo`. New settings go in `app/core/config.py` and `.env.example`; the frontend only needs a display name in `SOURCE_LABELS`.
 
 ## Imports (lists you already have)
 
@@ -128,6 +146,17 @@ A **run** searches a profile's terms in chosen cities using chosen sources, then
   - `POST /sheets/sync` ("Sync now") runs in the background; poll `GET /sheets` until `is_syncing` is false. After a run finishes, or a lead is edited or put on do-not-contact, the sheet refreshes by itself after `SHEETS_AUTO_SYNC_DELAY_SECONDS` (a burst of edits shares one refresh; an unchanged sheet is not rewritten). This can be switched off on the screen.
   - It only touches the worksheet called "Leads" and refuses one that already holds someone else's data. Anyone on the do-not-contact list is never written.
 
+## Pipeline: history, follow-ups and outcomes
+
+`/api/v1/pipeline` (any signed-in user) turns a lead's single status into a record of what happened and what comes next.
+
+- **Stages.** A lead moves through `new`, `contacted`, `interested`, `meeting`, `quoted` and ends as `customer` (won) or `not_interested` (lost).
+- **History.** Every status change and every change of owner is logged automatically with who made it and when, including bulk changes (one entry per lead that actually changed). People add their own entries (`note`, `call`, `whatsapp`, `email`, `meeting`) with `POST /pipeline/leads/{id}/activities`; `GET` lists them newest first. A person cannot log a system entry by hand.
+- **Outcomes.** Moving a lead to `customer` or `not_interested` can carry an `outcome` in the same `PATCH /businesses/{id}`: a deal `value`, `product` and `note` for a customer, a `loss_reason` (`price`, `competitor`, `no_need`, `no_response`, `bad_contact_data`, `wrong_business`, `other`) and `note` for a lost lead. Details that do not fit the status are refused before anything changes. Sending only `outcome` corrects the details of a lead that is already closed and is logged as "deal details updated". Moving a lead back to an open stage removes its outcome and keeps the history. A bulk change to `customer` or `not_interested` closes each lead with no details. `DEAL_CURRENCY` sets the currency the screens show; amounts are stored as plain numbers in that one currency.
+- **Follow-ups.** `POST /pipeline/leads/{id}/tasks` sets a title and a due date (assigned to the creator unless you say otherwise or pass `null`). `GET /pipeline/tasks` lists them by `scope` (`open`, `overdue`, `today`, `upcoming`, `done`), optionally only `mine` or for one `business_id`; `GET /pipeline/tasks/summary` gives the overdue, due-today and open counts the sidebar badge uses. "Today" is whatever date the caller sends as `today` (the browser sends its own local date); it defaults to today in UTC. Completing a task is logged on the lead. There are no emails or push messages: reminders are the Tasks screen and the badge.
+- **Do-not-contact** applies everywhere here: a blocked lead's history, tasks and outcome are not found, and are left out of the reports.
+- **Reports** (`/insights/pipeline`, `/insights/conversion?group_by=source|segment|city`) are described under Insights.
+
 ## Insights
 
 `GET /api/v1/insights/...` (any signed-in user) turns what runs have stored into market intelligence. Every number goes through the same do-not-contact filter as the leads list.
@@ -137,6 +166,8 @@ A **run** searches a profile's terms in chosen cities using chosen sources, then
 - `gaps?profile_id=&threshold=` — target cities with fewer leads than the threshold, split into "never searched" and "searched, little found", with the segments still missing.
 - `timeline` — new leads per day / week / month with a running total.
 - `sources` — per source: leads found, leads only it found, with phone / WhatsApp / email / website, billable requests and estimated cost (per lead for paid ones), so you can judge whether a paid source earns its cost.
+- `pipeline` — how far leads got: for each stage how many are there now and how many have reached it or gone beyond (a lead that closed keeps credit for the stages it passed), plus won, lost, still open, win rate (won of won + lost), revenue, average deal and the reasons leads were lost. "Reached" uses the recorded status history; a lead that was already `not_interested` before history was kept counts as lost but is not credited with any stage, and one already a `customer` counts as having passed every stage.
+- `conversion?group_by=` — the same stage counts, wins, losses, win rate and revenue per `source` (a lead found by two sources counts under both), `segment` (needs `profile_id`) or `city`.
 - `movers` — businesses seen recently whose review count grew most since the search before (each run records a rating / review-count snapshot per business it sees).
 
 ## Project Structure
@@ -151,15 +182,15 @@ app/
 │   ├── security.py, exceptions.py, limiter.py, crypto.py, utils.py
 │   ├── importing/      # Reading CSV/Excel files, mapping columns, looking up contacts (pure Python)
 │   ├── sheets/         # Google Sheets client + service-account sign-in (pure Python, no database)
-│   └── scouting/       # The engine: sources, website enrichment, phone/name normalisation, de-duplication,
-│                       #   classification. Pure Python: no database or web framework.
+│   └── scouting/       # The engine: sources (one module each), place_store (the local places files), website
+│                       #   enrichment, phone/name normalisation, de-duplication, classification. Pure Python.
 ├── features/        # One folder per feature (auth, users, profiles, geographies, sources, runs, businesses,
-│                    #   compliance, exports, sheets, insights, imports), each with router/service/schemas/models
+│                    #   compliance, exports, sheets, insights, imports, pipeline), each with router/service/schemas/models
 ├── models.py        # Imports every ORM model (add new ones here)
 └── main.py          # Application entry point
 
 alembic/          # Database migrations
-scripts/          # Utility/maintenance scripts (create_admin, seed + seed_data/, download_overture, convert_aedb_pdf)
+scripts/          # Utility/maintenance scripts (create_admin, seed + seed_data/, download_overture, download_foursquare, convert_aedb_pdf)
 tests/            # Test suite
 ```
 
@@ -180,7 +211,7 @@ Read these before putting it on a server.
 
 - **The frontend says "Network Error".** Wrong port or origin: check `VITE_API_URL` in the frontend and `CORS_ORIGINS` here. Another app (for example another project's backend) may be holding port 8000: `netstat -ano | findstr :8000`.
 - **OpenStreetMap searches fail with "refused this app's identification (HTTP 406)".** Overpass turns away placeholder contact addresses. Set `SCOUT_CONTACT_EMAIL` to a real address or leave it blank.
-- **Overture Maps says "Needs a download".** Run `python -m scripts.download_overture` in the backend folder (see above). "Data file can't be read" or "from an older version of the app" means the same: download it again.
+- **Overture Maps or Foursquare Places says "Needs a download".** Run `python -m scripts.download_overture` or `python -m scripts.download_foursquare --parquet ...` in the backend folder (see above). "Data file can't be read" or "from an older version of the app" means the same: download it again.
 - **A run's OpenStreetMap searches fail or are slow.** The public Overpass server throttles and sometimes times out. The run retries with backoff and keeps what it found; repeat the run later, or set `OVERPASS_URL` to another Overpass server.
 - **"The service account can't open this spreadsheet".** Share the sheet with the service account's email (shown on the Google Sheet screen) as Editor. "Sheets API isn't switched on" means enabling it in that Google Cloud project.
 - **A saved key "can no longer be read".** `SECRET_KEY` or `ENCRYPTION_KEY` changed since it was saved; enter it again.
@@ -193,4 +224,4 @@ Read these before putting it on a server.
 
 ## Status
 
-In development. Completed: foundation, auth, user management, profiles, locations, seed data, scouting engine, sources, runs, leads API, do-not-contact, CSV export, Google Sheet mirror, insights. Imports (CSV/Excel lists) and the AEDB installer list added. Hardening done (lint, guard tests, concurrency, clean-install check). Not built on purpose: two-way sheet sync, sending messages, LLM classification, a job queue (see Operating notes).
+In development. Completed: foundation, auth, user management, profiles, locations, seed data, scouting engine, sources (OpenStreetMap, Overture Maps, Foursquare Places, Google Places, HERE, TomTom), runs, leads API, do-not-contact, CSV export, Google Sheet mirror, insights. Imports (CSV/Excel lists) and the AEDB installer list added. Hardening done (lint, guard tests, concurrency, clean-install check). Lead history, follow-ups, deal outcomes and conversion reports added. Not built on purpose: two-way sheet sync, sending messages, LLM classification, a job queue (see Operating notes).

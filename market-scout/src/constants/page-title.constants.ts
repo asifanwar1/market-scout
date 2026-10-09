@@ -2,6 +2,7 @@ import { APP_ROUTES } from "@/routes/appRoutes";
 
 const STATIC_TITLES: Record<string, string> = {
     [APP_ROUTES.LEADS]: "Leads",
+    [APP_ROUTES.TASKS]: "Tasks",
     [APP_ROUTES.DO_NOT_CONTACT]: "Do not contact",
     [APP_ROUTES.RUNS]: "Runs",
     [APP_ROUTES.RUNS_NEW]: "New run",

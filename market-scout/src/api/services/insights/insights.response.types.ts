@@ -88,3 +88,48 @@ export type TMovers = {
     data: TMover[];
     count: number;
 };
+
+export type TPipelineStage = {
+    status: string;
+    current: number;
+    reached: number;
+};
+
+export type TLossReasonCount = {
+    reason: string | null;
+    count: number;
+};
+
+export type TPipeline = {
+    currency: string;
+    total: number;
+    open: number;
+    won: number;
+    lost: number;
+    win_rate: number | null;
+    revenue: number;
+    average_deal: number | null;
+    stages: TPipelineStage[];
+    loss_reasons: TLossReasonCount[];
+};
+
+export type TConversionRow = {
+    key: string;
+    name: string;
+    leads: number;
+    contacted: number;
+    interested: number;
+    meeting: number;
+    quoted: number;
+    won: number;
+    lost: number;
+    win_rate: number | null;
+    revenue: number;
+};
+
+export type TConversion = {
+    group_by: string;
+    data: TConversionRow[];
+    count: number;
+};
+

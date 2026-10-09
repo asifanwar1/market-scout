@@ -22,6 +22,8 @@ class SourceResponse(BaseModel):
     requires_dataset: bool = False
     dataset_ready: bool = True
     dataset_note: Optional[str] = None
+    download_command: Optional[str] = None
+    terms_note: Optional[str] = None
     is_available: bool
 
 

@@ -1,10 +1,12 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import {
+    GetConversion,
     GetCoverage,
     GetGaps,
     GetMovers,
     GetOverview,
+    GetPipeline,
     GetSourcesQuality,
     GetTimeline,
     INSIGHT_QUERY_KEYS,
@@ -13,6 +15,7 @@ import type { TQueryKeyPart } from "@/api/types/common";
 import type { TInsightBucket } from "@/api/services/insights/insights.response.types";
 import { useStore } from "@/store";
 import { STALE_TIME } from "@/constants/api.constants";
+import type { ConversionGroup } from "@/constants/pipeline.constants";
 
 
 const useInsightQuery = <T>(key: string, params: TQueryKeyPart[], queryFn: () => Promise<T>, enabled = true) => {
@@ -44,3 +47,10 @@ export const useGetSourcesQuality = (profileId?: number, enabled = true) =>
 
 export const useGetMovers = (profileId: number | undefined, days: number, enabled = true) =>
     useInsightQuery(INSIGHT_QUERY_KEYS.MOVERS, [profileId, days], () => GetMovers(profileId, days), enabled);
+
+export const useGetPipeline = (profileId?: number, enabled = true) =>
+    useInsightQuery(INSIGHT_QUERY_KEYS.PIPELINE, [profileId], () => GetPipeline(profileId), enabled);
+
+export const useGetConversion = (profileId: number | undefined, groupBy: ConversionGroup, enabled = true) =>
+    useInsightQuery(INSIGHT_QUERY_KEYS.CONVERSION, [profileId, groupBy], () => GetConversion(profileId, groupBy), enabled);
+

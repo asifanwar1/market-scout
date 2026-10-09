@@ -11,6 +11,7 @@ import RequireRole from "./RequireRole";
 const Login = lazy(() => import("@/pages/Authentication/Login"));
 const Leads = lazy(() => import("@/pages/Leads"));
 const Insights = lazy(() => import("@/pages/Insights"));
+const Tasks = lazy(() => import("@/pages/Tasks"));
 const DoNotContact = lazy(() => import("@/pages/DoNotContact"));
 const Runs = lazy(() => import("@/pages/Runs"));
 const NewRun = lazy(() => import("@/pages/Runs/NewRun"));
@@ -42,6 +43,7 @@ export const routes: RouteObject[] = [
             },
             { path: APP_ROUTES.LEADS, element: <Leads /> },
             { path: APP_ROUTES.INSIGHTS, element: <Insights /> },
+            { path: APP_ROUTES.TASKS, element: <Tasks /> },
             { path: APP_ROUTES.DO_NOT_CONTACT, element: <DoNotContact /> },
             {
                 element: <RequireRole roles={[USER_ROLE.ADMIN]} />,

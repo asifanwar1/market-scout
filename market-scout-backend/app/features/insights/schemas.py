@@ -105,3 +105,53 @@ class MoversResponse(BaseModel):
     days: int
     data: list[Mover]
     count: int
+
+
+class ConversionGroup(str, Enum):
+    SOURCE = "source"
+    SEGMENT = "segment"
+    CITY = "city"
+
+
+class PipelineStage(BaseModel):
+    status: str
+    current: int
+    reached: int
+
+
+class LossReasonCount(BaseModel):
+    reason: Optional[str] = None
+    count: int
+
+
+class PipelineResponse(BaseModel):
+    currency: str
+    total: int
+    open: int
+    won: int
+    lost: int
+    win_rate: Optional[float] = None
+    revenue: float
+    average_deal: Optional[float] = None
+    stages: list[PipelineStage]
+    loss_reasons: list[LossReasonCount]
+
+
+class ConversionRow(BaseModel):
+    key: str
+    name: str
+    leads: int
+    contacted: int
+    interested: int
+    meeting: int
+    quoted: int
+    won: int
+    lost: int
+    win_rate: Optional[float] = None
+    revenue: float
+
+
+class ConversionResponse(BaseModel):
+    group_by: ConversionGroup
+    data: list[ConversionRow]
+    count: int

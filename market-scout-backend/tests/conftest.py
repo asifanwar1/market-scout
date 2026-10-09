@@ -13,6 +13,11 @@ os.environ["SECRET_KEY"] = "test-secret-key-not-for-production"
 os.environ["RUN_WORKER_ENABLED"] = "false"
 for name, value in {
     "GOOGLE_PLACES_API_KEY": "",
+    "DEAL_CURRENCY": "USD",
+    "HERE_API_KEY": "",
+    "TOMTOM_API_KEY": "",
+    "HERE_COST_PER_REQUEST_USD": "0",
+    "TOMTOM_COST_PER_REQUEST_USD": "0",
     "SCOUT_CONTACT_EMAIL": "",
     "GOOGLE_SERVICE_ACCOUNT_JSON": "",
     "ENCRYPTION_KEY": "",

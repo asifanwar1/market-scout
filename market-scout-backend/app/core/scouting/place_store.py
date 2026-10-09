@@ -9,6 +9,8 @@ from pathlib import Path
 from app.core.scouting.normalize import normalize_name
 
 SCHEMA_VERSION = "2"
+STATUS_PERMANENTLY_CLOSED = "permanently_closed"
+EMPTY_STORE_MESSAGE = "There were no places to save, so the existing file was left as it is."
 
 _BATCH_SIZE = 5000
 
@@ -17,9 +19,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE places (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    -- normalize_name(name): what a list's business name is compared with, exactly.
     name_key TEXT NOT NULL,
-    -- "|primary|alternate|alternate|": delimiters on both ends so one category is found with instr().
     categories TEXT NOT NULL,
     confidence REAL NOT NULL,
     status TEXT,
@@ -110,6 +110,8 @@ def write_store(path: str | Path, places: Iterable[dict], release: str) -> int:
             ],
         )
         connection.commit()
+        if count == 0:
+            raise StoreError(EMPTY_STORE_MESSAGE)
     except BaseException:
         connection.close()
         building.unlink(missing_ok=True)
@@ -143,12 +145,12 @@ def _encode(place: dict) -> dict:
 def connect(path: str | Path) -> sqlite3.Connection:
     file = Path(path)
     if not file.is_file():
-        raise StoreError("The Overture data has not been downloaded yet.")
+        raise StoreError("The place data has not been downloaded yet.")
     try:
         connection = sqlite3.connect(f"{file.resolve().as_uri()}?mode=ro", uri=True)
         _check_layout(connection)
     except sqlite3.DatabaseError as exc:
-        raise StoreError(f"The Overture data file can't be read ({exc}). Download it again.") from exc
+        raise StoreError(f"The place data file can't be read ({exc}). Download it again.") from exc
     return connection
 
 
@@ -156,7 +158,7 @@ def _check_layout(connection: sqlite3.Connection) -> None:
     row = connection.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
     if row is None or row[0] != SCHEMA_VERSION:
         connection.close()
-        raise StoreError("The Overture data file is from an older version of the app. Download it again.")
+        raise StoreError("The place data file is from an older version of the app. Download it again.")
 
 
 def read_info(path: str | Path) -> StoreInfo:
@@ -202,9 +204,9 @@ def find_by_name_key(
 ) -> list[Place]:
     sql = (
         f"SELECT {PLACE_COLUMNS} FROM places "
-        "WHERE name_key = ? AND confidence >= ? AND (status IS NULL OR status != 'permanently_closed')"
+        "WHERE name_key = ? AND confidence >= ? AND (status IS NULL OR status != ?)"
     )
-    params: list = [name_key, min_confidence]
+    params: list = [name_key, min_confidence, STATUS_PERMANENTLY_CLOSED]
     if rectangle is not None:
         south, west, north, east = rectangle
         sql += " AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?"

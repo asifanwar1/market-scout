@@ -5,6 +5,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
 from app.features.businesses.models import ContactKind, LeadStatus
+from app.features.pipeline.schemas import OutcomeInput, OutcomeResponse
 
 NOTES_MAX_LENGTH = 5000
 BULK_UPDATE_MAX = 500
@@ -96,6 +97,7 @@ class BusinessDetailResponse(BaseModel):
     lead_status: LeadStatus
     assigned_to: Optional[AssignedUser] = None
     notes: Optional[str] = None
+    outcome: Optional[OutcomeResponse] = None
     classifications: list[ClassificationResponse]
     contacts: list[ContactPointResponse]
     sources: list[SourceRecordResponse]
@@ -109,6 +111,7 @@ class BusinessUpdate(BaseModel):
     lead_status: Optional[LeadStatus] = None
     notes: Optional[str] = Field(default=None, max_length=NOTES_MAX_LENGTH)
     assigned_to_id: Optional[int] = None
+    outcome: Optional[OutcomeInput] = None
 
 
 class BulkBusinessUpdate(BaseModel):

@@ -19,6 +19,7 @@ from app.features.businesses.schemas import BulkBusinessDelete, BulkBusinessUpda
 from app.features.compliance import service as compliance_service
 from app.features.geographies import service as geographies_service
 from app.features.geographies.models import Geography
+from app.features.pipeline import service as pipeline_service
 from app.features.profiles.models import ProfileSegment
 from app.features.users.models import User
 
@@ -317,6 +318,7 @@ def get_business_detail(db: Session, business_id: int) -> dict:
         "lead_status": business.lead_status,
         "assigned_to": _assigned(business, lookups),
         "notes": business.notes,
+        "outcome": pipeline_service.get_outcome(db, business.id),
         "classifications": [
             {
                 "profile_id": c.profile_id,
@@ -340,19 +342,28 @@ def _require_assignable_user(db: Session, user_id: int) -> None:
         raise BadRequestException("That user doesn't exist or is inactive")
 
 
-def update_business(db: Session, business_id: int, update_in: BusinessUpdate) -> dict:
+def _user_name(db: Session, user_id: int | None) -> str | None:
+    if user_id is None:
+        return None
+    return db.query(User.full_name).filter(User.id == user_id).scalar()
+
+
+def update_business(db: Session, business_id: int, update_in: BusinessUpdate, actor_id: int | None = None) -> dict:
     business = get_business_by_id(db, business_id)
-    data = update_in.model_dump(exclude_unset=True)
+    data = update_in.model_dump(exclude_unset=True, exclude={"outcome"})
 
     if "lead_status" in data and data["lead_status"] is None:
         raise BadRequestException("lead_status can't be empty")
     if data.get("assigned_to_id") is not None:
         _require_assignable_user(db, data["assigned_to_id"])
 
-    if "lead_status" in data:
-        business.lead_status = data["lead_status"].value
+    if "lead_status" in data or update_in.outcome is not None:
+        new_status = data["lead_status"].value if "lead_status" in data else business.lead_status
+        pipeline_service.apply_status_change(db, business, new_status, actor_id, update_in.outcome)
     if "assigned_to_id" in data:
+        before = _user_name(db, business.assigned_to_id)
         business.assigned_to_id = data["assigned_to_id"]
+        pipeline_service.record_assignment(db, business.id, before, _user_name(db, data["assigned_to_id"]), actor_id)
     if "notes" in data:
         business.notes = (data["notes"] or "").strip() or None
     db.commit()
@@ -377,26 +388,32 @@ def bulk_delete_businesses(db: Session, delete_in: BulkBusinessDelete) -> int:
     return len(businesses)
 
 
-def bulk_update_businesses(db: Session, update_in: BulkBusinessUpdate) -> int:
+def bulk_update_businesses(db: Session, update_in: BulkBusinessUpdate, actor_id: int | None = None) -> int:
     data = update_in.model_dump(exclude_unset=True, exclude={"business_ids"})
     if "lead_status" in data and data["lead_status"] is None:
         raise BadRequestException("lead_status can't be empty")
     if data.get("assigned_to_id") is not None:
         _require_assignable_user(db, data["assigned_to_id"])
 
-    values = {}
-    if "lead_status" in data:
-        values["lead_status"] = data["lead_status"].value
-    if "assigned_to_id" in data:
-        values["assigned_to_id"] = data["assigned_to_id"]
-
-    updated = (
+    businesses = (
         db.query(Business)
         .filter(Business.id.in_(set(update_in.business_ids)), compliance_service.not_blocked_filter())
-        .update(values, synchronize_session=False)
+        .all()
     )
+    names: dict[int | None, str | None] = {None: None}
+    if "assigned_to_id" in data:
+        wanted = {data["assigned_to_id"], *(business.assigned_to_id for business in businesses)}
+        names.update({user_id: _user_name(db, user_id) for user_id in wanted if user_id is not None})
+
+    for business in businesses:
+        if "lead_status" in data:
+            pipeline_service.apply_status_change(db, business, data["lead_status"].value, actor_id)
+        if "assigned_to_id" in data:
+            before = names.get(business.assigned_to_id)
+            business.assigned_to_id = data["assigned_to_id"]
+            pipeline_service.record_assignment(db, business.id, before, names.get(data["assigned_to_id"]), actor_id)
     db.commit()
-    return updated
+    return len(businesses)
 
 
 def get_assignable_users(db: Session) -> list[dict]:

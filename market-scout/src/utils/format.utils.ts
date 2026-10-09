@@ -59,7 +59,10 @@ export const formatUsd = (value: number): string =>
 export const SOURCE_LABELS: Record<string, string> = {
     osm: "OpenStreetMap",
     overture: "Overture Maps",
+    foursquare: "Foursquare Places",
     google_places: "Google Places",
+    here: "HERE Places",
+    tomtom: "TomTom Places",
     website_enrichment: "Website",
 };
 

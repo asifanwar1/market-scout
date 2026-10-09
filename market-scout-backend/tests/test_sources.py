@@ -24,7 +24,7 @@ def test_only_admins_can_see_or_change_sources(client, sales_user, auth_headers)
 def test_default_state_is_free_sources_on_and_paid_source_off(client, admin_user, auth_headers):
     sources = by_key(client, auth_headers(admin_user))
 
-    assert set(sources) == {"osm", "overture", "google_places", "website_enrichment"}
+    assert set(sources) == {"osm", "overture", "foursquare", "google_places", "here", "tomtom", "website_enrichment"}
     assert sources["osm"]["is_enabled"] and sources["osm"]["is_available"]
     assert sources["website_enrichment"]["is_available"] and sources["website_enrichment"]["kind"] == "enrichment"
     places = sources["google_places"]
@@ -186,9 +186,9 @@ def overture_file(tmp_path, monkeypatch):
 
 
 def make_overture_file(path):
-    from app.core.scouting import overture_store
+    from app.core.scouting import place_store
 
-    overture_store.write_store(
+    place_store.write_store(
         path,
         [{"id": "g1", "name": "Noor Solar", "categories": ["solar_installation"], "confidence": 0.9, "latitude": 31.5, "longitude": 74.3}],
         release="2026-09-23.1",
@@ -249,3 +249,118 @@ def test_build_sources_makes_an_overture_source_that_uses_the_configured_file(db
 
     assert isinstance(built, OvertureSource)
     assert built._path == str(overture_file) and built._min_confidence == 0.55
+
+
+@pytest.fixture()
+def foursquare_file(tmp_path, monkeypatch):
+    path = tmp_path / "foursquare.sqlite"
+    monkeypatch.setattr(settings, "FOURSQUARE_DB_PATH", str(path))
+    return path
+
+
+def make_foursquare_file(path):
+    from app.core.scouting import place_store
+
+    place_store.write_store(
+        path,
+        [
+            {
+                "id": "f1", "name": "Noor Solar", "categories": ["Retail > Electronics Store"], "confidence": 1.0,
+                "latitude": 31.5, "longitude": 74.3, "dataset": "foursquare",
+            }
+        ],
+        release="2026-09-30",
+    )
+
+
+def test_foursquare_is_unavailable_until_its_data_is_downloaded(client, admin_user, auth_headers, foursquare_file, db_session):
+    foursquare = by_key(client, auth_headers(admin_user))["foursquare"]
+
+    assert foursquare["is_enabled"] is True and foursquare["requires_dataset"] is True
+    assert foursquare["dataset_ready"] is False and foursquare["is_available"] is False
+    assert "scripts.download_foursquare" in foursquare["dataset_note"]
+    assert "foursquare" not in sources_service.get_available_discovery_keys(db_session)
+
+
+def test_foursquare_becomes_available_once_the_data_is_there(client, admin_user, auth_headers, foursquare_file, db_session):
+    make_foursquare_file(foursquare_file)
+
+    foursquare = by_key(client, auth_headers(admin_user))["foursquare"]
+
+    assert foursquare["dataset_ready"] is True and foursquare["is_available"] is True
+    assert "2026-09-30" in foursquare["dataset_note"] and "1 places" in foursquare["dataset_note"]
+    assert "foursquare" in sources_service.get_available_discovery_keys(db_session)
+
+
+def test_each_dataset_source_reports_its_own_download_command(client, admin_user, auth_headers, foursquare_file, overture_file):
+    sources = by_key(client, auth_headers(admin_user))
+
+    assert sources["foursquare"]["download_command"] == "python -m scripts.download_foursquare"
+    assert sources["overture"]["download_command"] == "python -m scripts.download_overture"
+    assert sources["osm"]["download_command"] is None
+
+
+def test_foursquare_connection_test_says_what_is_missing_or_how_much_is_there(client, admin_user, auth_headers, foursquare_file):
+    headers = auth_headers(admin_user)
+
+    missing = client.post("/api/v1/sources/foursquare/test", headers=headers).json()
+    assert missing["ok"] is False and "not been downloaded" in missing["message"]
+
+    make_foursquare_file(foursquare_file)
+    found = client.post("/api/v1/sources/foursquare/test", headers=headers).json()
+    assert found["ok"] is True and "2026-09-30" in found["message"] and found["message"].startswith("Foursquare")
+
+
+def test_build_sources_makes_a_foursquare_source_that_uses_the_configured_file(db_session, foursquare_file):
+    from app.core.scouting.sources.foursquare import FoursquareSource
+
+    built = sources_service.build_sources(db_session, ["foursquare"])["foursquare"]
+
+    assert isinstance(built, FoursquareSource)
+    assert built._path == str(foursquare_file)
+
+
+@pytest.mark.parametrize("key", ["here", "tomtom"])
+def test_hosted_providers_start_off_and_need_a_key_like_google(client, admin_user, auth_headers, key):
+    headers = auth_headers(admin_user)
+    source = by_key(client, headers)[key]
+
+    assert source["is_enabled"] is False and source["requires_api_key"] and source["is_paid"] and source["is_available"] is False
+    assert client.put(f"/api/v1/sources/{key}", headers=headers, json={"is_enabled": True}).status_code == 400
+
+    saved = client.put(f"/api/v1/sources/{key}", headers=headers, json={"api_key": f"{key}-key-12345", "is_enabled": True}).json()
+    assert saved["is_available"] is True and saved["key_source"] == "saved"
+    assert f"{key}-key-12345" not in str(by_key(client, headers)[key])
+
+
+@pytest.mark.parametrize(
+    ("key", "setting"), [("here", "HERE_API_KEY"), ("tomtom", "TOMTOM_API_KEY"), ("google_places", "GOOGLE_PLACES_API_KEY")]
+)
+def test_a_key_set_on_the_server_is_used_when_none_is_saved(client, admin_user, auth_headers, monkeypatch, key, setting):
+    monkeypatch.setattr(settings, setting, "server-key-98765")
+
+    source = by_key(client, auth_headers(admin_user))[key]
+
+    assert source["has_key"] is True and source["key_source"] == "environment" and source["key_hint"] == "…8765"
+
+
+def test_build_sources_makes_hosted_sources_with_the_saved_key(db_session):
+    from app.core.scouting.sources.here import HereSource
+    from app.core.scouting.sources.tomtom import TomTomSource
+
+    sources_service.update_source(db_session, "here", sources_service.SourceUpdate(api_key="here-key-12345", is_enabled=True))
+    sources_service.update_source(db_session, "tomtom", sources_service.SourceUpdate(api_key="tomtom-key-12345", is_enabled=True))
+
+    built = sources_service.build_sources(db_session, ["here", "tomtom"])
+
+    assert isinstance(built["here"], HereSource) and built["here"]._api_key == "here-key-12345"
+    assert isinstance(built["tomtom"], TomTomSource) and built["tomtom"]._api_key == "tomtom-key-12345"
+
+
+def test_paid_sources_carry_a_storage_terms_note_and_free_ones_do_not(client, admin_user, auth_headers):
+    sources = by_key(client, auth_headers(admin_user))
+
+    assert "30 days" in sources["here"]["terms_note"]
+    assert "restrict storing" in sources["tomtom"]["terms_note"]
+    assert "limit how long" in sources["google_places"]["terms_note"]
+    assert all(sources[key]["terms_note"] is None for key in ("osm", "overture", "foursquare", "website_enrichment"))

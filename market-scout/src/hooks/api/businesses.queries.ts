@@ -22,6 +22,7 @@ import type {
     TGetBusinessesParams,
     TUpdateBusinessBody,
 } from "@/api/services/businesses/businesses.request.types";
+import { INSIGHT_QUERY_KEYS, PIPELINE_QUERY_KEYS } from "@/api";
 import { queryClient } from "@/lib/queryClient";
 import { useStore } from "@/store";
 import { invalidateMultiple } from "@/utils/common.utils";
@@ -60,10 +61,20 @@ export const useGetAssignees = () => {
     });
 };
 
-const refreshBusinesses = () =>
+const refreshPipeline = () =>
     invalidateMultiple(queryClient, [
-        [BUSINESS_QUERY_KEYS.BUSINESSES],
-        [BUSINESS_QUERY_KEYS.BUSINESS],
+        [PIPELINE_QUERY_KEYS.ACTIVITIES],
+        [INSIGHT_QUERY_KEYS.PIPELINE],
+        [INSIGHT_QUERY_KEYS.CONVERSION],
+    ]);
+
+const refreshBusinesses = () =>
+    Promise.all([
+        invalidateMultiple(queryClient, [
+            [BUSINESS_QUERY_KEYS.BUSINESSES],
+            [BUSINESS_QUERY_KEYS.BUSINESS],
+        ]),
+        refreshPipeline(),
     ]);
 
 export const useUpdateBusiness = () => {
@@ -75,8 +86,9 @@ export const useUpdateBusiness = () => {
                 [BUSINESS_QUERY_KEYS.BUSINESS, updated.id],
                 updated,
             );
-            await invalidateMultiple(queryClient, [
-                [BUSINESS_QUERY_KEYS.BUSINESSES],
+            await Promise.all([
+                invalidateMultiple(queryClient, [[BUSINESS_QUERY_KEYS.BUSINESSES]]),
+                refreshPipeline(),
             ]);
         },
     });

@@ -7,8 +7,11 @@ import httpx
 
 from app.core.constants import CONDITION_OPERATOR_EQUALS
 from app.core.scouting.sources.base import (
+    KIND_DISCOVERY,
     SourceAuthError,
+    SourceBuildContext,
     SourceError,
+    SourceInfo,
     SourceUnavailableError,
     request_with_retries,
 )
@@ -18,6 +21,7 @@ QUERY_TIMEOUT_SECONDS = 60
 RESULT_LIMIT = 1000
 DEFAULT_MIN_INTERVAL_SECONDS = 3.0
 REQUEST_TIMEOUT_SECONDS = 90
+SEARCH_OVERHEAD_SECONDS = 3
 
 
 SOURCE_KEY = "osm"
@@ -154,3 +158,24 @@ class OsmSource:
         wait = self._min_interval_s - (self._clock() - self._last_request_at)
         if wait > 0:
             self._sleep(wait)
+
+
+def build(context: SourceBuildContext) -> OsmSource:
+    return OsmSource(
+        context.settings.OVERPASS_URL,
+        context.user_agent,
+        min_interval_s=context.settings.OVERPASS_MIN_INTERVAL_SECONDS,
+    )
+
+
+INFO = SourceInfo(
+    key=SOURCE_KEY,
+    name="OpenStreetMap",
+    description="Free community map data. No key needed, but phone numbers are patchy in Pakistan.",
+    kind=KIND_DISCOVERY,
+    requires_api_key=False,
+    default_enabled=True,
+    supports_filter=bool,
+    build=build,
+    seconds_per_search=lambda settings: settings.OVERPASS_MIN_INTERVAL_SECONDS + SEARCH_OVERHEAD_SECONDS,
+)

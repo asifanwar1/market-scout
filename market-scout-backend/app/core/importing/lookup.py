@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from app.core.scouting import overture_store
+from app.core.scouting import place_store
 from app.core.scouting.normalize import normalize_name
 from app.core.scouting.sources.overture import place_to_business
 from app.core.scouting.types import RawBusiness
@@ -12,7 +12,7 @@ Rectangle = tuple[float, float, float, float]
 
 class OvertureLookup:
     def __init__(self, path: str, min_confidence: float):
-        self._connection = overture_store.connect(path)
+        self._connection = place_store.connect(path)
         self._min_confidence = min_confidence
         self._release = self._connection.execute("SELECT value FROM meta WHERE key = 'release'").fetchone()[0]
 
@@ -29,7 +29,7 @@ class OvertureLookup:
         key = normalize_name(name)
         if len(key) < MIN_NAME_LENGTH:
             return None
-        places = overture_store.find_by_name_key(self._connection, key, area, self._min_confidence, limit=2)
+        places = place_store.find_by_name_key(self._connection, key, area, self._min_confidence, limit=2)
         if len(places) != 1:
             return None
         found = places[0]

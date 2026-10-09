@@ -1,4 +1,5 @@
 import type { LeadStatus } from "@/constants/lead-status.constants";
+import type { TOutcome } from "@/api/services/pipeline/pipeline.response.types";
 import type { TListResponse } from "@/api/types/common";
 
 export type TAssignedUser = {
@@ -78,6 +79,7 @@ export type TBusinessDetail = {
     lead_status: LeadStatus;
     assigned_to: TAssignedUser | null;
     notes: string | null;
+    outcome: TOutcome | null;
     classifications: TClassification[];
     contacts: TContactPoint[];
     sources: TSourceRecord[];

@@ -33,12 +33,22 @@ export const ENDPOINTS = {
         detail: (id?: number | string) => `/imports/${id}`,
     },
     INSIGHTS: {
+        CONVERSION: "/insights/conversion",
         COVERAGE: "/insights/coverage",
         GAPS: "/insights/gaps",
         MOVERS: "/insights/movers",
         OVERVIEW: "/insights/overview",
+        PIPELINE: "/insights/pipeline",
         SOURCES: "/insights/sources",
         TIMELINE: "/insights/timeline",
+    },
+    PIPELINE: {
+        CONFIG: "/pipeline/config",
+        TASKS: "/pipeline/tasks",
+        TASK_SUMMARY: "/pipeline/tasks/summary",
+        activities: (id?: number | string) => `/pipeline/leads/${id}/activities`,
+        leadTasks: (id?: number | string) => `/pipeline/leads/${id}/tasks`,
+        task: (id?: number | string) => `/pipeline/tasks/${id}`,
     },
     PROFILES: {
         ROOT: "/profiles/",
