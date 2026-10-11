@@ -4,10 +4,12 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.features.ai.schemas import AiResultResponse
 from app.features.businesses.models import ContactKind, LeadStatus
 from app.features.pipeline.schemas import OutcomeInput, OutcomeResponse
 
 NOTES_MAX_LENGTH = 5000
+CONTACT_NAME_MAX_LENGTH = 100
 BULK_UPDATE_MAX = 500
 
 
@@ -17,6 +19,7 @@ class BusinessSort(str, Enum):
     NEWEST = "newest"
     LAST_SEEN = "last_seen"
     NAME = "name"
+    AI_FIT = "ai_fit"
 
 
 class SortDirection(str, Enum):
@@ -44,6 +47,9 @@ class ContactPointResponse(BaseModel):
     whatsapp_likely: bool
     source_key: str
     created_at: Optional[datetime] = None
+    check_status: Optional[str] = None
+    check_note: Optional[str] = None
+    checked_at: Optional[datetime] = None
 
 
 class SourceRecordResponse(BaseModel):
@@ -63,6 +69,7 @@ class BusinessListItem(BaseModel):
     segment_slug: Optional[str] = None
     segment_name: Optional[str] = None
     score: Optional[int] = None
+    ai_fit: Optional[int] = None
     lead_status: LeadStatus
     assigned_to: Optional[AssignedUser] = None
     primary_phone: Optional[str] = None
@@ -91,13 +98,18 @@ class BusinessDetailResponse(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     website: Optional[str] = None
+    website_status: Optional[str] = None
+    website_check_note: Optional[str] = None
+    website_checked_at: Optional[datetime] = None
     rating: Optional[float] = None
     review_count: Optional[int] = None
     categories: list[str]
     lead_status: LeadStatus
     assigned_to: Optional[AssignedUser] = None
     notes: Optional[str] = None
+    contact_name: Optional[str] = None
     outcome: Optional[OutcomeResponse] = None
+    ai: Optional[AiResultResponse] = None
     classifications: list[ClassificationResponse]
     contacts: list[ContactPointResponse]
     sources: list[SourceRecordResponse]
@@ -110,6 +122,7 @@ class BusinessDetailResponse(BaseModel):
 class BusinessUpdate(BaseModel):
     lead_status: Optional[LeadStatus] = None
     notes: Optional[str] = Field(default=None, max_length=NOTES_MAX_LENGTH)
+    contact_name: Optional[str] = Field(default=None, max_length=CONTACT_NAME_MAX_LENGTH)
     assigned_to_id: Optional[int] = None
     outcome: Optional[OutcomeInput] = None
 

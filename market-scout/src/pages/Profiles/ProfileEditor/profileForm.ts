@@ -1,3 +1,4 @@
+import { IDEAL_CUSTOMER_MAX_LENGTH } from "@/constants/limits.constants";
 import { z } from "zod";
 
 import type { TProfileBody } from "@/api/services/profiles/profiles.request.types";
@@ -56,6 +57,7 @@ export type TTermValues = {
 export type TProfileFormValues = {
     name: string;
     description: string;
+    idealCustomer: string;
     isActive: boolean;
     scoring: TScoringConfig;
     segments: TSegmentValues[];
@@ -105,6 +107,7 @@ export const profileSchema = z
     .object({
         name: z.string().trim().min(2, "At least 2 characters").max(100, "At most 100 characters"),
         description: z.string().max(500, "At most 500 characters"),
+        idealCustomer: z.string().max(IDEAL_CUSTOMER_MAX_LENGTH, `At most ${IDEAL_CUSTOMER_MAX_LENGTH} characters`),
         isActive: z.boolean(),
         scoring: z.object({
             has_phone: weight,
@@ -152,6 +155,7 @@ export const profileSchema = z
 export const emptyProfile = (): TProfileFormValues => ({
     name: "",
     description: "",
+    idealCustomer: "",
     isActive: true,
     scoring: { ...DEFAULT_SCORING },
     segments: [],
@@ -177,6 +181,7 @@ export const toFormValues = (profile: TProfileDetail): TProfileFormValues => {
     return {
         name: profile.name,
         description: profile.description ?? "",
+        idealCustomer: profile.ideal_customer ?? "",
         isActive: profile.is_active,
         scoring: { ...DEFAULT_SCORING, ...profile.scoring_config },
         segments,
@@ -197,6 +202,7 @@ export const toRequestBody = (values: TProfileFormValues): TProfileBody => {
     return {
         name: values.name.trim(),
         description: values.description.trim() || null,
+        ideal_customer: values.idealCustomer.trim() || null,
         is_active: values.isActive,
         scoring_config: values.scoring,
         segments: values.segments.map((segment, index) => {

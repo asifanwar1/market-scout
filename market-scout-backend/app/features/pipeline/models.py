@@ -26,6 +26,8 @@ class ActivityKind(str, PyEnum):
     ASSIGNMENT = "assignment"
     TASK_COMPLETED = "task_completed"
     OUTCOME_UPDATED = "outcome_updated"
+    SEGMENT_CHANGED = "segment_changed"
+    MERGED = "merged"
 
 
 class ManualActivityKind(str, PyEnum):

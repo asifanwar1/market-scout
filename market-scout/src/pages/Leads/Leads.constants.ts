@@ -1,3 +1,4 @@
+import { CRM_LAYOUT } from "@/constants/integration.constants";
 import { SCORE_HIGH_MIN, SCORE_MEDIUM_MIN } from "@/constants/limits.constants";
 
 export const LEAD_SORT = {
@@ -5,9 +6,10 @@ export const LEAD_SORT = {
     NEWEST: "newest",
     LAST_SEEN: "last_seen",
     NAME: "name",
+    AI_FIT: "ai_fit",
 } as const;
 
-export const SORT_VALUES = [LEAD_SORT.SCORE, LEAD_SORT.NEWEST, LEAD_SORT.LAST_SEEN, LEAD_SORT.NAME] as const;
+export const SORT_VALUES = [LEAD_SORT.SCORE, LEAD_SORT.AI_FIT, LEAD_SORT.NEWEST, LEAD_SORT.LAST_SEEN, LEAD_SORT.NAME] as const;
 
 export const SORT_DIRECTION = {
     ASC: "asc",
@@ -35,6 +37,14 @@ export const EXPORT_OPTIONS = [
 ] as const;
 
 export const EXPORT_BUTTON_LABEL = "Export";
+
+export const CRM_EXPORT_HEADING = "For a CRM";
+
+export const CRM_EXPORT_OPTIONS = [
+    { layout: CRM_LAYOUT.HUBSPOT, label: "HubSpot companies (.csv)" },
+    { layout: CRM_LAYOUT.ZOHO, label: "Zoho CRM leads (.csv)" },
+    { layout: CRM_LAYOUT.GENERIC, label: "Any CRM, plain columns (.csv)" },
+] as const;
 
 export const SELECT_COLUMN_WIDTH = 40;
 export const ACTIONS_COLUMN_WIDTH = 56;

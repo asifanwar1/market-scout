@@ -2,15 +2,34 @@ import { useState, type ChangeEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import type { TCreateRunBody } from "@/api/services/runs/runs.request.types";
+import type { TCreateScheduleBody } from "@/api/services/schedules/schedules.request.types";
 import { useGetGeographyTree, useGetProfile, useGetProfiles, useGetSources } from "@/hooks/api/catalog.queries";
 import { useCreateRun, useEstimateRun } from "@/hooks/api/runs.queries";
+import { useCreateSchedule } from "@/hooks/api/schedules.queries";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { getErrorMessage } from "@/lib/errorHandlerUtils";
 import { showToast } from "@/lib/toast";
 import { APP_ROUTES } from "@/routes/appRoutes";
 import { formatCount, formatUsd } from "@/utils/format.utils";
+import {
+    REPEAT_URL_PARAM,
+    REPEAT_URL_VALUE,
+    SCHEDULE_FREQUENCY,
+    SCHEDULE_FREQUENCY_OPTIONS,
+    getScheduleFrequencyLabel,
+    type ScheduleFrequency,
+} from "@/constants/schedule.constants";
 import { SOURCE_KIND } from "@/constants/source.constants";
-import { CITY_URL_PARAM, ESTIMATE_DEBOUNCE_MS, MIN_PAID_CAP, NULL_BODY_KEY } from "./NewRun.constants";
+import {
+    CITY_URL_PARAM,
+    ESTIMATE_DEBOUNCE_MS,
+    MIN_PAID_CAP,
+    MIN_SCHEDULE_NAME_LENGTH,
+    NEW_REPEAT_DESCRIPTION,
+    NEW_RUN_DESCRIPTION,
+    NULL_BODY_KEY,
+    REPEAT_SAVED_MESSAGE,
+} from "./NewRun.constants";
 
 type TRunFormState = {
     profileId: number;
@@ -31,6 +50,17 @@ const buildRunPayload = (form: TRunFormState): TCreateRunBody => ({
     segment_slugs: form.segmentSlugs.length === form.allSegmentsCount ? null : form.segmentSlugs,
     enrich_websites: form.enrichWebsites,
     refresh: form.refresh,
+    max_paid_requests: form.usesPaidSource && form.maxPaid >= MIN_PAID_CAP ? Math.floor(form.maxPaid) : null,
+});
+
+const buildSchedulePayload = (form: TRunFormState, name: string, frequency: ScheduleFrequency): TCreateScheduleBody => ({
+    name: name.trim(),
+    frequency,
+    profile_id: form.profileId,
+    geography_ids: form.cityIds,
+    source_keys: form.sourceKeys,
+    segment_slugs: form.segmentSlugs.length === form.allSegmentsCount ? null : form.segmentSlugs,
+    enrich_websites: form.enrichWebsites,
     max_paid_requests: form.usesPaidSource && form.maxPaid >= MIN_PAID_CAP ? Math.floor(form.maxPaid) : null,
 });
 
@@ -65,6 +95,9 @@ export const useNewRun = () => {
     const [refresh, setRefresh] = useState(false);
     const [maxPaid, setMaxPaid] = useState("");
     const [showConfirm, setShowConfirm] = useState(false);
+    const [isRepeating, setIsRepeating] = useState(() => searchParams.get(REPEAT_URL_PARAM) === REPEAT_URL_VALUE);
+    const [frequency, setFrequency] = useState<ScheduleFrequency>(SCHEDULE_FREQUENCY.WEEKLY);
+    const [chosenName, setChosenName] = useState<string | null>(null);
 
     const sourceKeys =
         chosenSources ??
@@ -72,6 +105,9 @@ export const useNewRun = () => {
     const segmentSlugs = chosenSegments ?? segments.map((segment) => segment.slug);
     const usesPaidSource = discoverySources.some((source) => source.is_paid && sourceKeys.includes(source.key));
     const enrichmentAvailable = enrichmentSource?.is_available ?? false;
+
+    const defaultScheduleName = profile ? `${profile.name}, ${getScheduleFrequencyLabel(frequency).toLowerCase()}` : "";
+    const scheduleName = chosenName ?? defaultScheduleName;
 
     const hasSelection = Boolean(profileId) && cityIds.length > 0 && sourceKeys.length > 0 && segmentSlugs.length > 0;
     const body: TCreateRunBody | null =
@@ -83,10 +119,28 @@ export const useNewRun = () => {
                   segmentSlugs,
                   allSegmentsCount: segments.length,
                   enrichWebsites: enrichWebsites && enrichmentAvailable,
-                  refresh,
+                  refresh: refresh || isRepeating,
                   maxPaid: Number(maxPaid),
                   usesPaidSource,
               })
+            : null;
+    const scheduleBody: TCreateScheduleBody | null =
+        isRepeating && hasSelection && profileId
+            ? buildSchedulePayload(
+                  {
+                      profileId,
+                      cityIds,
+                      sourceKeys,
+                      segmentSlugs,
+                      allSegmentsCount: segments.length,
+                      enrichWebsites: enrichWebsites && enrichmentAvailable,
+                      refresh: true,
+                      maxPaid: Number(maxPaid),
+                      usesPaidSource,
+                  },
+                  scheduleName,
+                  frequency,
+              )
             : null;
 
     const bodyKey = JSON.stringify(body);
@@ -95,9 +149,16 @@ export const useNewRun = () => {
     const estimate = estimateQuery.data;
     const isSettled = settledKey === bodyKey;
 
-    const { mutateAsync: createRun, isPending: isStarting } = useCreateRun();
+    const { mutateAsync: createRun, isPending: isCreatingRun } = useCreateRun();
+    const { mutateAsync: createSchedule, isPending: isSavingSchedule } = useCreateSchedule();
+    const isStarting = isCreatingRun || isSavingSchedule;
+
+    const needsPaidCap = isRepeating && usesPaidSource && !(Number(maxPaid) >= MIN_PAID_CAP);
+    const needsName = isRepeating && scheduleName.trim().length < MIN_SCHEDULE_NAME_LENGTH;
 
     const canStart =
+        !needsPaidCap &&
+        !needsName &&
         body !== null &&
         isSettled &&
         !estimateQuery.isFetching &&
@@ -106,6 +167,12 @@ export const useNewRun = () => {
         (estimate?.tasks_total ?? 0) > 0;
 
     const confirmStart = async () => {
+        if (scheduleBody) {
+            await createSchedule(scheduleBody);
+            showToast.success(REPEAT_SAVED_MESSAGE);
+            navigate(APP_ROUTES.SCHEDULES);
+            return;
+        }
         if (!body) return;
         const run = await createRun(body);
         showToast.success(`Run #${run.id} started`);
@@ -148,9 +215,25 @@ export const useNewRun = () => {
     const hasNoProfiles = profiles.length === 0;
     const profileValue = String(profileId);
     const isEnrichmentOn = enrichWebsites && enrichmentAvailable;
-    const confirmDescription = estimate
-        ? `This run may make up to ${formatCount(estimate.paid_requests_max)} billable requests (about ${formatUsd(estimate.estimated_cost_usd)} at the configured rate). You can cancel it while it runs.`
+    const repeatCostNote = `It repeats ${getScheduleFrequencyLabel(frequency).toLowerCase()}, so this cost comes round each time.`;
+    const paidRunNote = estimate
+        ? `This run may make up to ${formatCount(estimate.paid_requests_max)} billable requests (about ${formatUsd(estimate.estimated_cost_usd)} at the configured rate).`
         : "";
+    const confirmDescription = isRepeating ? `${paidRunNote} ${repeatCostNote}` : `${paidRunNote} You can cancel it while it runs.`;
+    const confirmTitle = isRepeating ? "Repeat a search that costs money?" : "Start a run that costs money?";
+    const confirmLabel = isRepeating ? "Save repeating search" : "Start run";
+    const pageTitle = isRepeating ? "New repeating search" : "New run";
+    const pageDescription = isRepeating ? NEW_REPEAT_DESCRIPTION : NEW_RUN_DESCRIPTION;
+    const frequencyOptions = SCHEDULE_FREQUENCY_OPTIONS;
+
+    const onFrequencyChange = (value: string) => {
+        const next = SCHEDULE_FREQUENCY_OPTIONS.find((option) => option.value === value);
+        if (next) setFrequency(next.value);
+    };
+
+    const onScheduleNameChange = (event: ChangeEvent<HTMLInputElement>) => {
+        setChosenName(event.target.value);
+    };
 
     const closeConfirm = () => {
         setShowConfirm(false);
@@ -183,6 +266,18 @@ export const useNewRun = () => {
         onMaxPaidChange,
         isEnrichmentOn,
         confirmDescription,
+        confirmTitle,
+        confirmLabel,
+        pageTitle,
+        pageDescription,
+        isRepeating,
+        setIsRepeating,
+        frequency,
+        frequencyOptions,
+        onFrequencyChange,
+        scheduleName,
+        onScheduleNameChange,
+        needsPaidCap,
         estimate,
         isEstimating,
         estimateError,

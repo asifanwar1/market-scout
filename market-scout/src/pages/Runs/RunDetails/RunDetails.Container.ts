@@ -77,7 +77,8 @@ export const useRunDetails = () => {
     const statusClassName = status?.className;
     const finishedSearches = run ? run.tasks_done + run.tasks_failed + run.tasks_skipped : 0;
     const pageTitle = `Run #${run?.id ?? ""}`;
-    const pageDescription = run ? `${run.profile_name} · ${run.source_keys.map(getSourceLabel).join(", ")}` : "";
+    const scheduleNote = run?.schedule_name ? ` · repeating search "${run.schedule_name}"` : "";
+    const pageDescription = run ? `${run.profile_name} · ${run.source_keys.map(getSourceLabel).join(", ")}${scheduleNote}` : "";
     const searchesFinishedText = `${finishedSearches} / ${run?.tasks_total ?? 0}`;
     const websitesReadText = run && run.enrich_total > 0 ? `${run.enrich_done} / ${run.enrich_total}` : NO_VALUE;
     const startedText = run ? formatDateTime(run.started_at ?? run.created_at) : NO_VALUE;

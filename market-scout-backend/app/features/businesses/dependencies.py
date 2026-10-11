@@ -20,10 +20,11 @@ def business_filters(
     unassigned: bool = Query(False),
     source: Optional[str] = Query(None, description="Only businesses this source reported"),
     min_score: Optional[int] = Query(None, ge=SCORE_MIN, le=SCORE_MAX),
+    min_ai_fit: Optional[int] = Query(None, ge=SCORE_MIN, le=SCORE_MAX, description="Only leads the AI rated at least this fit"),
     search: Optional[str] = Query(None, max_length=SEARCH_MAX_LENGTH, description="Name, address, phone or email"),
 ) -> BusinessFilters:
     return BusinessFilters(
         profile_id=profile_id, segment=segment, geography_id=geography_id, has_phone=has_phone,
         whatsapp_likely=whatsapp_likely, has_email=has_email, has_website=has_website, status=status,
-        assigned_to_id=assigned_to_id, unassigned=unassigned, source=source, min_score=min_score, search=search,
+        assigned_to_id=assigned_to_id, unassigned=unassigned, source=source, min_score=min_score, min_ai_fit=min_ai_fit, search=search,
     )

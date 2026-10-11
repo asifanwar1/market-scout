@@ -1,4 +1,4 @@
-import { Trash2, X } from "lucide-react";
+import { ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,7 +20,18 @@ type TBulkActionsBarProps = {
 };
 
 const BulkActionsBar = ({ page }: TBulkActionsBarProps) => {
-    const { isAdmin, selectedIds, assignees, applyBulkUpdate, isBulkUpdating, openBulkDelete, setRowSelection } = page;
+    const {
+        isAdmin,
+        selectedIds,
+        assignees,
+        activeProfileId,
+        applyBulkUpdate,
+        isBulkUpdating,
+        openAnalyze,
+        openCheck,
+        openBulkDelete,
+        setRowSelection,
+    } = page;
     const count = selectedIds.length;
 
     if (count === 0) return null;
@@ -78,6 +89,16 @@ const BulkActionsBar = ({ page }: TBulkActionsBarProps) => {
                     {LEAD_STATUS_OPTIONS.map(renderStatusOption)}
                 </SelectContent>
             </Select>
+
+            <Button variant="outline" size="sm" disabled={!activeProfileId} onClick={openAnalyze}>
+                <Sparkles />
+                Analyze with AI
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={openCheck}>
+                <ShieldCheck />
+                Check contacts
+            </Button>
 
             {isAdmin && (
                 <Button variant="destructive" size="sm" onClick={openBulkDelete}>

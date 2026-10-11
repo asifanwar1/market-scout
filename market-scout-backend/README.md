@@ -85,7 +85,7 @@ The API backend for Market Scout, a reusable business-discovery and market-intel
 
 ## Data sources and runs
 
-A **run** searches a profile's terms in chosen cities using chosen sources, then reads each found business's own website for more contact details. Everything is done by a single background thread inside the server (started on boot, `RUN_WORKER_ENABLED`); progress is polled from `GET /api/v1/runs/{id}`.
+A **run** searches a profile's terms in chosen cities using chosen sources, then reads each found business's own website for more contact details. Runs are background jobs (see *Background jobs and repeating searches*; switched off by `RUN_WORKER_ENABLED=false`); progress is polled from `GET /api/v1/runs/{id}`.
 
 - **Sources** (`/api/v1/sources`, admin only) are switched on/off, and given an API key, from the UI — no code change.
   - **OpenStreetMap** — free, no key. Phone numbers are patchy in Pakistan, and the public Overpass server throttles, so requests are spaced out and retried with backoff.
@@ -107,7 +107,7 @@ A **run** searches a profile's terms in chosen cities using chosen sources, then
   - **Website enrichment** — reads each business's own site (robots.txt honoured, public addresses only) for email, WhatsApp and social pages.
 - Results from all sources are merged into one business (same website, same phone with a similar name, or same spot with a near-identical name). Every phone/email records which source reported it, and each source's raw answer is kept.
 - Each run stores per-source quality (found / new / merged / with phone / website / email) so you can see whether a paid source is worth it.
-- A search that finished within `RUN_TASK_CACHE_DAYS` is skipped by later runs unless `refresh` is set. A run interrupted by a restart can be resumed.
+- A search that finished within `RUN_TASK_CACHE_DAYS` is skipped by later runs unless `refresh` is set. A run interrupted by a restart or crash carries on by itself; one that keeps failing can be resumed by hand.
 
 ### Adding a source
 
@@ -157,6 +157,108 @@ The Sources screen, run planning, validation, the connection test and Insights r
 - **Do-not-contact** applies everywhere here: a blocked lead's history, tasks and outcome are not found, and are left out of the reports.
 - **Reports** (`/insights/pipeline`, `/insights/conversion?group_by=source|segment|city`) are described under Insights.
 
+## AI assistant
+
+`/api/v1/ai` adds a Claude-powered second opinion on a lead. It is **advice only**: results sit beside a lead and never change its segment or score unless someone applies the suggestion.
+
+- **What it produces** (per lead and profile): a one-line summary of what the business does, a suggested segment (or none), and a 0-100 *fit* score with a reason, measured against the profile's **ideal customer** text (`ideal_customer` on the profile; edit it in the profile editor). The score is `null` when the website has too little text to judge. Each result also records a confidence (`low`/`medium`/`high`), the model used, how many pages were read and whether the text was cut.
+- **How a lead is read.** The website's home page and an "About" page (when linked) are fetched with the same safeguards as contact enrichment (public addresses only, robots.txt honoured) and reduced to visible text, at most `PAGE_TEXT_MAX_CHARS` (8,000) in `app/features/ai/service.py`. A lead with no website, a site that blocks automated readers, or a page with under 200 characters of text is skipped **without calling the API** and the reason is stored.
+- **What is sent to Anthropic.** The business name, address, city, listing categories and website address, plus the website text, plus the profile's segment list and ideal-customer text. Phone numbers and emails from the lead record are not sent, though they can appear in a website's own text. The website text is wrapped in a data block, the prompt tells the model to treat it as data and never as instructions, and a closing tag inside the text is escaped so a page can't end the block early.
+- **Calling Claude.** Through the official `anthropic` SDK (`app/core/ai/analyzer.py`): one `messages.create` per lead with a JSON-schema `output_config.format`, `max_tokens` 2,000 and, on models that support it, `effort: low` (a rating needs little deliberation). A refusal (`stop_reason: refusal`) is recorded as "declined"; the tokens it used are still counted. **Server-side fallbacks for refusals are not enabled**: a declined lead is just marked declined. `ANTHROPIC_API_KEY` may be set on the server as a fallback to a key saved from the AI assistant screen (stored encrypted, like the other keys).
+- **Models and prices.** `claude-opus-5-5` (default), `claude-sonnet-5-5` and `claude-haiku-4-5`, chosen on the AI assistant screen; prices per million tokens live in `app/core/ai/models.py` and were copied from Anthropic's published list on 2026-09-25. **Check them against your Anthropic bill**: cost is computed from the token counts the API reports. The default is the most capable and the most expensive; Sonnet or Haiku is usually enough for a rating.
+- **Spending is capped.** `AI_MONTHLY_BUDGET_USD` (default 5, editable on the screen) is the calendar-month ceiling. Every call is logged to `ai_usage` with its tokens and cost. Before each lead the batch checks that this month's spend plus that lead's *worst-case* cost (full-size prompt and the whole `max_tokens`) still fits, and stops with a message if not. `POST /ai/estimate` shows the same worst case up front; real costs are usually a fraction of it.
+- **Batches.** `POST /ai/analyze` (any signed-in user) queues up to 100 leads and returns a batch; a background job processes it one lead at a time. `GET /ai/batches/{id}` reports progress, counts and the first few problems. If the server stops mid-batch it carries on from the next lead when it is back (see *Background jobs and repeating searches*). Leads already analysed for that profile are skipped unless `refresh` is set, and a failed re-analysis never overwrites an earlier good result. A key that is rejected, or an account out of credit, stops the whole batch.
+- **Using results.** `GET /businesses` returns `ai_fit` per lead and accepts `min_ai_fit` and `sort=ai_fit`; a lead's detail returns an `ai` object. `POST /ai/leads/{id}/apply-segment` moves the lead to the suggested segment and logs it on the lead's timeline.
+- **Admin.** `GET`/`PUT /ai/settings` and `POST /ai/settings/test` are admin-only (the test uses Anthropic's token-counting call, which makes no model request). `GET /ai/status` tells every user whether the assistant is ready and, if not, why.
+
+## Background jobs and repeating searches
+
+Runs, imports and AI batches are **jobs** saved in the database (the `jobs` table), not tasks held in memory. Nothing queued is lost when the server stops.
+
+- **Starting work.** Saving a run (or import, or AI batch) and its job happen in one transaction, so there is never a run with no job to carry it out. Three lanes inside the server (runs, imports, AI) each take the oldest waiting job of their kind, one at a time. A lane takes a job by an atomic update that gives it a 30-second **lease**, which a heartbeat renews every 10 seconds while it works.
+- **After a crash or restart.** If a job's lease lapses (the process was killed, the machine lost power), a maintenance thread puts it back in the queue and the work carries on where it stopped: a run continues with the searches not yet done (and keeps its counts so far), an import with the rows not yet stored, an AI batch with the next lead. Expect it to start again roughly 30-45 seconds after the server is back. Each job gets up to 3 attempts; after that it is marked failed with a message, and a failed run can still be resumed by hand. A job that stops with an unexpected error is marked failed and is **not** retried.
+- **Stopping the server on purpose** hands running jobs back at once, so the next start picks them up without waiting for the lease.
+- **Self-healing.** On start and every 10 seconds the server gives a job to anything that is waiting without one (for example work queued before this feature existed) and recovers work stuck in "running" with no job. A lane that has died is started again, and a database error while looking for work is logged and retried after 5 seconds instead of killing the lane.
+- **Seeing it.** `GET /api/v1/jobs/status` (admin) lists how many jobs are waiting and running per kind, how long the oldest has waited and the latest failures. `GET /health` now also reports `workers` (`running`, `disabled` when `RUN_WORKER_ENABLED=false`, or `stopped`, which makes the health check answer 503). Finished job records are deleted after 30 days.
+- **More than one process.** Jobs and schedules are claimed with guarded updates, so two processes should not run the same job, but this is not tested, and the Sheets sync lock and refresh timer are still per process. Keep to one server process.
+
+`/api/v1/schedules` (admin only) holds **repeating searches**: a profile, cities, sources and options like a run, plus how often (`daily`, `weekly` or `monthly`).
+
+- **When it runs.** The first run comes one cycle after the schedule is saved (use `POST /schedules/{id}/run-now` to start one sooner without moving the cadence). A ticker checks every 15 seconds. Each run is created exactly like a manual run, with `refresh` on so the searches really repeat, and carries the schedule's id and name. Leads that are already known are merged, so a run adds only what is new.
+- **Checked when saved.** The same checks as a run (profile on, cities and sources exist and are switched on, search count under `RUN_MAX_TASKS`), and a schedule that uses a paid source **must** set a cap on billable requests, since the cost repeats.
+- **Careful by default.** A schedule that was overdue (the server was off) runs once, not once per missed cycle. If its last run is still going, that cycle is skipped. If the last run failed, or a run cannot be started, it counts as a failure; three in a row switch the schedule off with the reason in `last_error`. A completed run clears the count. Switching a schedule back on clears the failures and waits one cycle.
+- **Editing.** `PUT /schedules/{id}` can change the name, frequency, on/off and the search itself (re-checked). The Repeating searches screen switches schedules on and off, runs them now and deletes them; to change what one searches, use the API or save a new one. Deleting a schedule keeps the runs it made.
+- **Not built.** Choosing a time of day or weekday (a cycle counts from when the schedule was saved), and re-reading the websites of leads that already exist.
+
+## Alerts
+
+`/api/v1/alerts` tells people about things worth a look that turned up when a run finished. They are in-app only: a list and an unread count, nothing is emailed or messaged.
+
+- **When they are worked out.** At the end of every run (manual or repeating), whatever its outcome, once the run's results are stored. A failure while working them out is logged and never affects the run. Only leads the run touched are considered, and leads on the do-not-contact list never produce or show an alert.
+- **Three kinds.**
+  - `new_lead`: the lead was first seen during this run and scores at least `new_lead_min_score` (default 70) for the run's profile. The AI fit is not used, because it only exists after someone asks for it.
+  - `growing`: the lead's review count rose by at least `growing_min_new_reviews` (default 10) **and** by at least `growing_min_percent` (default 20%) since its previous snapshot. It needs a source that reports reviews (Google, HERE, TomTom, Foursquare, Overture); OpenStreetMap has none, so it never triggers this.
+  - `reachable`: a lead that was known before the run gained a phone, email or WhatsApp contact during it (including from reading its website) and had none of those before. A website or social page alone does not count.
+- **No repeats.** An alert is unique per kind, lead and key: `new_lead` and `reachable` once per lead ever, `growing` once per review count reached. Running the same evaluation again adds nothing.
+- **Not a flood.** `max_per_run` (default 50) keeps only the best of a run (highest score or biggest review jump). Alerts older than 90 days are deleted.
+- **Who sees them.** An alert about a lead that is assigned goes to that person; an unassigned lead's alert goes to everyone who signs in. Alerts are not moved if the lead is assigned later. Read state is per person, so one person reading an alert does not clear it for anyone else.
+- **Endpoints.** `GET /alerts` (filters `unread_only`, `kind`; returns the person's unread count too), `GET /alerts/summary` (just the unread count, used by the sidebar badge), `POST /alerts/mark-read` (`ids` or `all`). `GET`/`PUT /alerts/settings` are admin-only and apply to every profile from the next run.
+
+## Integrations
+
+Three ways to connect other software, all admin-managed.
+
+**API keys** (`/api/v1/api-keys`, admin; `DELETE` revokes). A key is `ms_` plus 43 random characters. It is shown once when created; only its SHA-256 hash is stored, so a lost key cannot be recovered, only replaced. A key is read-only unless an admin ticks `can_write`.
+
+**Public API** (`/api/v1/public`, any valid key). Send `Authorization: Bearer <key>` or `X-API-Key: <key>`. A key works only here: a login token is refused on these routes and a key is refused everywhere else, so a leaked key can never manage users, settings or other keys. Each key is limited to 120 requests a minute for reads and 60 for writes (`429` after that).
+- `GET /me`, `GET /leads` (same filters, sorting and paging as the Leads page), `GET /leads/{id}`, `GET /leads/{id}/activities`.
+- Write keys only: `POST /leads` adds a business (needs a phone, email or website; an optional `city_id`, `profile_id` and `segment_slug`; it is stored with source `api`, merged into an existing lead if it matches, and refused with `409` if it or a contact is on the do-not-contact list), `PATCH /leads/{id}` (status, notes, contact person, deal outcome; never assignment) and `POST /leads/{id}/activities` (a note, call, meeting, WhatsApp or email). Changes made with a key show on the lead's history with no person's name.
+- Do-not-contact leads are invisible here, as everywhere.
+- Using a key records `last_used_at`, refreshed at most once a minute to avoid a database write on every request.
+
+**Webhooks** (`/api/v1/webhooks`, admin). The app calls an address you give it when something happens.
+- **Events**: `lead.created` (a run, import or API call stored a new business), `lead.status_changed` (with `from_status`, `to_status` and, when the lead became a customer or not interested, the deal `outcome` with value, product and loss reason), `alert.raised` (the alert and the lead) and `message.sent` (a confirmed outreach message). The payload carries a small snapshot of the lead (id, name, city, status, score, website, phones, emails); fetch the lead through the public API for more. A lead is announced when it is created, so contacts a later website read finds are not in that snapshot.
+- **Delivery**: a JSON `POST` with `X-MarketScout-Event`, `X-MarketScout-Delivery` (the delivery id, unchanged across tries) and `X-MarketScout-Signature: t=<unix seconds>,v1=<hex>`, where `v1` is HMAC-SHA256 of `"<t>." + raw body` with the webhook's signing secret. The secret is shown once when the webhook is made (or replaced with `rotate-secret`) and stored encrypted. Redirects are not followed and the answer must arrive within 10 seconds.
+- **Retries**: any answer other than 2xx, or no answer, is tried again after 30 s, 2 min, 10 min and 1 h, five tries in all. Delivery is at least once (a server restart can send a call twice), so receivers should ignore a delivery id they have seen. Events are not guaranteed to arrive in order. After 15 failed tries in a row the webhook switches itself off and says so; switching it back on clears the count. A failed delivery can be sent again by hand. Deliveries are kept 30 days.
+- **Jobs**: each delivery is a `webhook` job in the same job table as runs, so retries survive restarts and show in `GET /jobs/status`.
+- **Address rules**: `https://` only, no username or password in the address, and the host must resolve to a public address, checked when the webhook is saved and again before every call. `WEBHOOKS_ALLOW_PRIVATE_URLS=true` lifts the https and public-address rules for testing against a program on your own machine or network; leave it off on a server reachable from the internet.
+- **Test**: `POST /{id}/test` queues a `ping` event even for a switched-off webhook; it gets one try and does not count towards the failure limit.
+
+**CRM files** (`GET /api/v1/exports/crm.csv?layout=hubspot|zoho|generic`, any user, same filters as `leads.csv`). One row per lead, company-first because the leads are businesses: `hubspot` uses HubSpot's company property names (the importer maps columns by header, and the Market Scout extras can be skipped or created as custom properties), `zoho` uses Zoho CRM's Leads fields with the required Last Name always filled (the contact person's last word, or the business name when there is none) and `generic` has plain columns plus the deal outcome, value, product, loss reason and close date. Country is always Pakistan, as the app searches there. Statuses map to each CRM's stage names as a guess: HubSpot's Lifecycle Stage (Lead, Sales Qualified Lead, Opportunity, Customer, Other) and Zoho's Lead Status; the real status is always in a `Market Scout status` column. Review the mapping in the CRM's import screen.
+
+## Outreach
+
+`/api/v1/outreach` helps a person message a lead without the app ever sending anything itself.
+
+- **Templates** (`GET/POST /templates`, `PATCH/DELETE /templates/{id}`): shared by the whole team. Everyone can list them (optionally narrowed with `channel`, which also returns `any` templates); only admins create, change or delete. A template is for `whatsapp`, `email` or `any`; only email-capable templates keep a subject. Names are unique ignoring case.
+- **Placeholders**: `{business_name}`, `{city}` and `{contact_name}`, listed by `GET /config`. A lead with no city says "your city" and one with no saved contact person says "there". Any other `{word}` is refused when saving a template or preparing a message, so a typo never goes out. The contact person is a plain field on the lead (`contact_name`, edited with `PATCH /businesses/{id}`); nothing fills it in automatically.
+- **Preview** (`POST /preview`): fills a template, or text written by hand, for one lead without saving anything. The Copy button uses it too, so copying leaves no trace.
+- **Prepare** (`POST /messages`): the person picks the lead's contact, the channel and the final text. The server checks that the contact belongs to the lead and suits the channel (a phone or WhatsApp number for WhatsApp; an email address for email, never one a contact check found cannot receive mail), fills the placeholders, and returns a `wa.me` chat link or a `mailto:` link with the text encoded in it. It records the message as `opened`. **Nothing is logged on the lead and no status changes at this point**, and the reply says if someone already messaged this lead in the last 14 days.
+- **Confirm** (`POST /messages/{id}/decision {sent}`): the person says whether they really sent it, once. `sent` adds a WhatsApp or Email entry (with the template name, subject and text) to the lead's history and moves a lead still marked *new* to *contacted* (a lead further along is never moved back). `not_sent` keeps the row in the log and changes nothing else. Only the person who wrote the message, or an admin, can confirm it. A message nobody confirms stays `opened`.
+- **Send log** (`GET /messages`): newest first, filterable by lead, by status and to your own messages. A lead on the do-not-contact list cannot be messaged and drops out of the log.
+- **Merging and deleting**: merging two leads moves the send log and the contact person onto the lead you keep. Deleting a template keeps every message already logged, with the template's name.
+- **Not built, on purpose**: bulk sending, sending through WhatsApp or an email service, and email sequences with unsubscribe. WhatsApp's rules do not allow unsolicited bulk messages, and those pieces need an email service to be chosen first.
+
+## Data quality
+
+`/api/v1/quality` keeps the lead list honest. It has three parts.
+
+**Contact checks** (`POST /quality/checks`, any signed-in user; follow it with `GET /quality/tasks/{id}`). A background job looks at up to 500 leads you choose:
+- **Email:** the address's domain is looked up in DNS (`dnspython`, 5-second limit). A domain with mail servers is `ok`; one that does not exist, has no mail server, or publishes a null MX is `bad`; a lookup that cannot finish leaves the result unknown and is tried again next time. **No email is ever sent**, and no mail server is contacted, so this says a domain can receive mail, not that the mailbox exists.
+- **Website:** one plain request to the home page (public addresses only, like website reading, but without robots.txt since it is a single page load). It is `ok` if it answers (including 401/403/429, which mean it is there but turns bots away) and `dead` if the domain is missing, the connection fails, it loops, or it returns an error status. A timeout leaves it unknown.
+- **Phones:** a number listed for 3 or more businesses is flagged `warning` (likely a switchboard or directory). No telephone number is called.
+- **Effect:** a `bad` email and a `dead` website stop counting towards the lead's score (the lead is rescored at once); results are kept 30 days and not repeated unless `refresh` is set. The lead detail shows each contact's `check_status`, `check_note` and `checked_at`, and `website_status`.
+- **Automatic checks:** `PUT /quality/settings` (admin) can switch on `check_after_runs`, which queues a check for the leads each run touched (at most `max_checks_per_run`, default 200). It is off by default.
+
+**Duplicate review** (admin). The automatic merge only joins businesses that clearly match (same website, same phone with a similar name, or very close with a very similar name). Pairs it was unsure about are saved for you:
+- Recorded as new leads arrive: the same phone under a very different name, or a similar name within 300 m. `POST /quality/duplicates/scan` also looks through leads already stored (grid and phone blocking, so it stays fast) and flags pairs that should have merged as `likely`. Pairs you have decided are never offered again.
+- `GET /quality/duplicates` lists pending pairs with both sides side by side. `POST /duplicates/{id}/merge {keep_id}` moves the other lead's contacts, source records, snapshots, classifications, AI results, history, tasks, outcome, do-not-contact marks, notes and any missing details onto the lead you keep, logs "Merged with a duplicate" on its timeline, rescores it and deletes the other. If the other lead had a closed deal and the kept one had none, the deal and status come across. **Merging cannot be undone.** `POST /duplicates/{id}/dismiss` records "not the same".
+
+**Scoring from outcomes** (admin). `GET /quality/scoring?profile_id=` takes the leads you closed as won or lost and, for each of the six scoring traits (phone, mobile, working website, working email, 3+ reviews, name matches its segment), compares how often leads with and without it were won.
+- **Honest about data:** nothing is suggested below 30 closed deals; a trait needs at least 5 leads on each side, and its difference must pass a two-proportion z-test (|z| of at least 1.64, about 90% confidence) before it is called clear. A clear trait gets half its win-rate difference (in points) added to or taken off its weight, by at most 25 and within 0-100. Everything else keeps its weight.
+- **It shows what you worked, not why.** Only leads someone contacted get closed, so a pattern is a hint rather than proof.
+- **Apply and undo.** `POST /scoring/apply` recomputes the suggestion on the server (the screen's numbers are not trusted), saves the old weights, updates the profile and rescores every lead for it; `POST /scoring/revert` restores them. Changing a profile's scoring weights by hand now rescores its leads too (before, scores only changed when a lead was next seen).
+
 ## Insights
 
 `GET /api/v1/insights/...` (any signed-in user) turns what runs have stored into market intelligence. Every number goes through the same do-not-contact filter as the leads list.
@@ -182,10 +284,11 @@ app/
 │   ├── security.py, exceptions.py, limiter.py, crypto.py, utils.py
 │   ├── importing/      # Reading CSV/Excel files, mapping columns, looking up contacts (pure Python)
 │   ├── sheets/         # Google Sheets client + service-account sign-in (pure Python, no database)
+│   ├── ai/             # The Claude call: prompt, structured answer, model prices (pure Python)
 │   └── scouting/       # The engine: sources (one module each), place_store (the local places files), website
 │                       #   enrichment, phone/name normalisation, de-duplication, classification. Pure Python.
 ├── features/        # One folder per feature (auth, users, profiles, geographies, sources, runs, businesses,
-│                    #   compliance, exports, sheets, insights, imports, pipeline), each with router/service/schemas/models
+│                    #   compliance, exports, sheets, insights, imports, pipeline, ai, jobs, schedules, alerts, quality, outreach, api_keys, public_api, webhooks), each with router/service/schemas/models
 ├── models.py        # Imports every ORM model (add new ones here)
 └── main.py          # Application entry point
 
@@ -199,7 +302,7 @@ tests/            # Test suite
 Read these before putting it on a server.
 
 - **Secrets.** `SECRET_KEY` must be at least 32 characters (the app refuses to start otherwise). Saved API keys and the Google service-account key are encrypted with `ENCRYPTION_KEY` (or a key derived from `SECRET_KEY`: rotating either means re-entering saved keys, and the screens say so). Never commit `.env`.
-- **One process.** Runs execute on a background thread inside the server, and the Sheets sync lock and the automatic-refresh timer are per process. Run **one** server process (one uvicorn worker). Running several would start duplicate workers; moving to a real queue (Celery/RQ) is the step to take before scaling out.
+- **One process.** Runs, imports and AI batches are jobs kept in the database and carried out by threads inside the server, and the Sheets sync lock and the automatic-refresh timer are per process. Run **one** server process (one uvicorn worker). Jobs survive a restart (see *Background jobs and repeating searches*); a separate queue service (Celery/RQ) is the step to take before running on several machines.
 - **Database.** SQLite is fine for one machine (WAL mode is on). It allows one writer at a time, so every request that changes data, and the background run, take the write lock up front and wait their turn (up to 15 s); reads never wait. Keep write transactions short and never hold one across a network call: the run worker is written that way, and `tests/test_concurrency.py` fails if that changes. Back it up by copying `market_scout.db` while the server is stopped, or with `sqlite3 market_scout.db ".backup copy.db"`. For PostgreSQL, see the note below.
 - **Health check.** `GET /health` answers 200 only if the database does (503 otherwise), for a monitor or load balancer. `GET /` is a cheap "is it running".
 - **Logs.** `LOG_LEVEL` controls the app's own logging (failed syncs, crashed runs, database conflicts). Errors shown to users are plain sentences; the technical detail goes to the log only.
@@ -224,4 +327,4 @@ Read these before putting it on a server.
 
 ## Status
 
-In development. Completed: foundation, auth, user management, profiles, locations, seed data, scouting engine, sources (OpenStreetMap, Overture Maps, Foursquare Places, Google Places, HERE, TomTom), runs, leads API, do-not-contact, CSV export, Google Sheet mirror, insights. Imports (CSV/Excel lists) and the AEDB installer list added. Hardening done (lint, guard tests, concurrency, clean-install check). Lead history, follow-ups, deal outcomes and conversion reports added. Not built on purpose: two-way sheet sync, sending messages, LLM classification, a job queue (see Operating notes).
+In development. Completed: foundation, auth, user management, profiles, locations, seed data, scouting engine, sources (OpenStreetMap, Overture Maps, Foursquare Places, Google Places, HERE, TomTom), runs, leads API, do-not-contact, CSV export, Google Sheet mirror, insights. Imports (CSV/Excel lists) and the AEDB installer list added. Hardening done (lint, guard tests, concurrency, clean-install check). Lead history, follow-ups, deal outcomes and conversion reports added. AI assistant added. Background jobs survive restarts, searches can repeat on a schedule, and runs raise in-app alerts, and a data-quality screen checks contacts, reviews duplicates and learns from closed deals, and message templates open WhatsApp or the mail app with a send log. API keys, a public API, signed webhooks and CRM import files connect other software. Not built on purpose: two-way sheet sync, the app sending messages itself, a separate queue service (see Operating notes).

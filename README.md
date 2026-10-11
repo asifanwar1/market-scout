@@ -13,6 +13,12 @@ A reusable business-discovery and market-intelligence system. It finds small bus
 - **Imports lists you already have** (CSV or Excel, such as the government's certified-installer lists) through the same matching, scoring and do-not-contact checks, and can look up the missing phones of a name-only list in Overture Maps.
 - **Merges and scores** what different sources report into one lead per business, sorted best first.
 - **Sales work the leads in the app**: filter, call or WhatsApp, record status and notes, assign, bulk-update, export to CSV.
+- **Helps you message leads**: shared message templates that fill in the business name, city and contact person, a button that opens WhatsApp or your mail app with the text ready, and a log of what was sent. You press send yourself, then confirm it was sent.
+- **Connects to your other software**: API keys let your own programs and tools like Zapier read leads, add them and update them; signed webhooks tell them when a lead is found, changes status or a deal is won or lost; and leads export as files ready to import into HubSpot, Zoho CRM or any CRM.
+- **Checks and cleans its own data**: marks emails that cannot receive mail and websites that are down (they stop counting towards a score), asks you about businesses that may be listed twice, and shows which traits go with the deals you win, with suggested score weights you approve.
+- **Alerts you in the app** when a run finds a new lead that scores well, a business whose reviews are climbing, or a lead that can finally be contacted. The limits are set by an admin.
+- **Repeats searches by itself** (daily, weekly or monthly) and adds only what is new. Runs, imports and AI batches are kept in the database, so a restart or crash does not lose them: they carry on where they stopped.
+- **Reads a lead's website with Claude** (on demand, with a cost estimate and a monthly spending cap) to say what the business does, suggest a segment and rate how well it fits your ideal customer. It is advice and changes nothing by itself.
 - **Tracks leads through to deals**: a history of what happened on each lead, follow-up tasks with due dates, the deal value or the reason a lead was lost, and reports of what turns into customers by source, segment and city.
 - **Respects do-not-contact**: anyone asking to be left alone is excluded everywhere (lists, exports, the sheet, insights) and is refused if a later search finds them again.
 - **Mirrors the leads to a Google Sheet** (one way, app to sheet) for people who prefer a spreadsheet.

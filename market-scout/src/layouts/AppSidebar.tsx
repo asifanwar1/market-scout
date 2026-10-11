@@ -15,6 +15,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { useGetAlertSummary } from "@/hooks/api/alerts.queries";
 import { useGetTaskSummary } from "@/hooks/api/pipeline.queries";
 import { todayStamp } from "@/utils/pipeline.utils";
 import { APP_ROUTES } from "@/routes/appRoutes";
@@ -29,6 +30,8 @@ const AppSidebar = ({ onLogoutClick }: TAppSidebarProps) => {
     const { pathname } = useLocation();
     const user = useStore((state) => state.user);
     const { data: taskSummary } = useGetTaskSummary(todayStamp());
+    const { data: alertSummary } = useGetAlertSummary();
+    const unreadAlerts = alertSummary?.unread ?? 0;
     const tasksNeedingAttention = (taskSummary?.overdue ?? 0) + (taskSummary?.due_today ?? 0);
 
     const visibleGroups = menuGroups.filter(
@@ -51,6 +54,7 @@ const AppSidebar = ({ onLogoutClick }: TAppSidebarProps) => {
                 {item.path === APP_ROUTES.TASKS && tasksNeedingAttention > 0 && (
                     <SidebarMenuBadge>{tasksNeedingAttention}</SidebarMenuBadge>
                 )}
+                {item.path === APP_ROUTES.ALERTS && unreadAlerts > 0 && <SidebarMenuBadge>{unreadAlerts}</SidebarMenuBadge>}
             </SidebarMenuItem>
         );
         return (

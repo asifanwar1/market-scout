@@ -19,6 +19,7 @@ class Profile(Base):
     name = Column(String, unique=True, nullable=False)
     slug = Column(String, unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
+    ideal_customer = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     scoring_config = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

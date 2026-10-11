@@ -27,11 +27,14 @@ class Settings(BaseSettings):
     GOOGLE_PLACES_API_KEY: str = ""
     PLACES_COST_PER_REQUEST_USD: float = 0.035
     DEAL_CURRENCY: str = "USD"
+    ANTHROPIC_API_KEY: str = ""
+    AI_MONTHLY_BUDGET_USD: float = 5.0
     HERE_API_KEY: str = ""
     HERE_COST_PER_REQUEST_USD: float = 0.0
     TOMTOM_API_KEY: str = ""
     TOMTOM_COST_PER_REQUEST_USD: float = 0.0
     RUN_WORKER_ENABLED: bool = True
+    WEBHOOKS_ALLOW_PRIVATE_URLS: bool = False
     RUN_MAX_TASKS: int = 2000
     RUN_TASK_CACHE_DAYS: int = 7
     ENRICHMENT_CONCURRENCY: int = 4

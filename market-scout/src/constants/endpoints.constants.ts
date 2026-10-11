@@ -1,4 +1,32 @@
 export const ENDPOINTS = {
+    API_KEYS: {
+        ROOT: "/api-keys/",
+        key: (id?: number | string) => `/api-keys/${id}`,
+    },
+    WEBHOOKS: {
+        CONFIG: "/webhooks/config",
+        ROOT: "/webhooks/",
+        deliveries: (id?: number | string) => `/webhooks/${id}/deliveries`,
+        hook: (id?: number | string) => `/webhooks/${id}`,
+        retry: (id?: number | string) => `/webhooks/deliveries/${id}/retry`,
+        rotateSecret: (id?: number | string) => `/webhooks/${id}/rotate-secret`,
+        test: (id?: number | string) => `/webhooks/${id}/test`,
+    },
+    ALERTS: {
+        MARK_READ: "/alerts/mark-read",
+        ROOT: "/alerts/",
+        SETTINGS: "/alerts/settings",
+        SUMMARY: "/alerts/summary",
+    },
+    AI: {
+        ANALYZE: "/ai/analyze",
+        ESTIMATE: "/ai/estimate",
+        SETTINGS: "/ai/settings",
+        STATUS: "/ai/status",
+        TEST: "/ai/settings/test",
+        applySegment: (id?: number | string) => `/ai/leads/${id}/apply-segment`,
+        batch: (id?: number | string) => `/ai/batches/${id}`,
+    },
     AUTH: {
         CHANGE_PASSWORD: "/auth/change-password",
         LOGIN: "/auth/login",
@@ -18,6 +46,7 @@ export const ENDPOINTS = {
         DO_NOT_CONTACT: "/compliance/do-not-contact",
     },
     EXPORTS: {
+        CRM_CSV: "/exports/crm.csv",
         LEADS_CSV: "/exports/leads.csv",
         LEADS_XLSX: "/exports/leads.xlsx",
     },
@@ -54,6 +83,29 @@ export const ENDPOINTS = {
         ROOT: "/profiles/",
         detail: (id?: number | string) => `/profiles/${id}`,
     },
+    JOBS: {
+        STATUS: "/jobs/status",
+    },
+    OUTREACH: {
+        CONFIG: "/outreach/config",
+        MESSAGES: "/outreach/messages",
+        PREVIEW: "/outreach/preview",
+        TEMPLATES: "/outreach/templates",
+        decision: (id?: number | string) => `/outreach/messages/${id}/decision`,
+        template: (id?: number | string) => `/outreach/templates/${id}`,
+    },
+    QUALITY: {
+        CHECKS: "/quality/checks",
+        DUPLICATES: "/quality/duplicates",
+        DUPLICATES_SCAN: "/quality/duplicates/scan",
+        SCORING: "/quality/scoring",
+        SCORING_APPLY: "/quality/scoring/apply",
+        SCORING_REVERT: "/quality/scoring/revert",
+        SETTINGS: "/quality/settings",
+        dismiss: (id?: number | string) => `/quality/duplicates/${id}/dismiss`,
+        merge: (id?: number | string) => `/quality/duplicates/${id}/merge`,
+        task: (id?: number | string) => `/quality/tasks/${id}`,
+    },
     RUNS: {
         ESTIMATE: "/runs/estimate",
         ROOT: "/runs/",
@@ -61,6 +113,11 @@ export const ENDPOINTS = {
         detail: (id?: number | string) => `/runs/${id}`,
         resume: (id?: number | string) => `/runs/${id}/resume`,
         tasks: (id?: number | string) => `/runs/${id}/tasks`,
+    },
+    SCHEDULES: {
+        ROOT: "/schedules/",
+        detail: (id?: number | string) => `/schedules/${id}`,
+        runNow: (id?: number | string) => `/schedules/${id}/run-now`,
     },
     SHEETS: {
         ROOT: "/sheets/",

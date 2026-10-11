@@ -89,6 +89,13 @@ export const describeActivity = (activity: TActivity): TActivityView => {
             return { title: "Completed a follow-up", detail: activity.summary };
         case ACTIVITY_KIND.OUTCOME_UPDATED:
             return { title: "Deal details updated", detail: null };
+        case ACTIVITY_KIND.SEGMENT_CHANGED:
+            return {
+                title: `Segment: ${activity.from_value ?? NO_VALUE} → ${activity.to_value ?? NO_VALUE}`,
+                detail: activity.summary,
+            };
+        case ACTIVITY_KIND.MERGED:
+            return { title: "Merged with a duplicate", detail: activity.summary };
         default:
             return {
                 title: MANUAL_ACTIVITY_OPTIONS.find((option) => option.value === activity.kind)?.label ?? activity.kind,

@@ -1,0 +1,7 @@
+export const WEBHOOK_QUERY_KEYS = {
+    CONFIG: "WEBHOOK_CONFIG",
+    WEBHOOKS: "WEBHOOKS",
+    DELIVERIES: "WEBHOOK_DELIVERIES",
+} as const;
+
+export default WEBHOOK_QUERY_KEYS;

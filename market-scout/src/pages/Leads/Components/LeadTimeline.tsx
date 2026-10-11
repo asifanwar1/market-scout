@@ -7,6 +7,8 @@ import {
     Phone,
     Plus,
     StickyNote,
+    Tags,
+    GitMerge,
     UserRound,
     Users,
     type LucideIcon,
@@ -35,6 +37,8 @@ const ACTIVITY_ICONS: Record<ActivityKind, LucideIcon> = {
     [ACTIVITY_KIND.ASSIGNMENT]: UserRound,
     [ACTIVITY_KIND.TASK_COMPLETED]: CheckCircle2,
     [ACTIVITY_KIND.OUTCOME_UPDATED]: BadgeDollarSign,
+    [ACTIVITY_KIND.SEGMENT_CHANGED]: Tags,
+    [ACTIVITY_KIND.MERGED]: GitMerge,
 };
 
 const EMPTY_TEXT = "Nothing logged yet. Log a call or note, and status changes will appear here automatically.";

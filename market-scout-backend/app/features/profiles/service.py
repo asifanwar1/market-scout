@@ -146,6 +146,7 @@ def create_profile(db: Session, profile_in: ProfileCreate) -> Profile:
         name=profile_in.name.strip(),
         slug=_generate_unique_slug(db, profile_in.name),
         description=profile_in.description,
+        ideal_customer=(profile_in.ideal_customer or "").strip() or None,
         is_active=profile_in.is_active,
         scoring_config=profile_in.scoring_config.model_dump(),
     )
@@ -160,12 +161,15 @@ def create_profile(db: Session, profile_in: ProfileCreate) -> Profile:
 def update_profile(db: Session, profile_id: int, profile_in: ProfileUpdate) -> Profile:
     profile = get_profile_by_id(db, profile_id)
     update_data = profile_in.model_dump(exclude_unset=True, exclude={"segments", "search_terms"})
+    weights_before = dict(profile.scoring_config or {})
 
     if update_data.get("name") is not None:
         _ensure_name_available(db, update_data["name"], exclude_id=profile.id)
         profile.name = update_data["name"].strip()
     if "description" in update_data:
         profile.description = update_data["description"]
+    if "ideal_customer" in update_data:
+        profile.ideal_customer = (update_data["ideal_customer"] or "").strip() or None
     if update_data.get("is_active") is not None:
         profile.is_active = update_data["is_active"]
     if update_data.get("scoring_config") is not None:
@@ -177,6 +181,10 @@ def update_profile(db: Session, profile_id: int, profile_in: ProfileUpdate) -> P
         _sync_search_terms(db, profile, profile_in.search_terms)
 
     db.commit()
+    if dict(profile.scoring_config or {}) != weights_before:
+        from app.features.quality import scoring
+
+        scoring.rescore_profile(db, profile)
     db.refresh(profile)
     return profile
 

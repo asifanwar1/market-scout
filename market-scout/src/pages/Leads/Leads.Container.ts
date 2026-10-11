@@ -9,7 +9,7 @@ import {
 } from "nuqs";
 import { useState, type ChangeEvent } from "react";
 
-import { ExportLeadsCsv, ExportLeadsXlsx } from "@/api";
+import { ExportCrmCsv, ExportLeadsCsv, ExportLeadsXlsx } from "@/api";
 import type {
     TBusinessFilters,
     TBusinessSort,
@@ -19,6 +19,7 @@ import type {
 import type { TBusinessListItem } from "@/api/services/businesses/businesses.response.types";
 import { FIRST_PAGE, LEAD_STATUS, SEARCH_DEBOUNCE_MS, USER_ROLE } from "@/constants";
 import { GENERIC_ERROR_MESSAGE } from "@/constants/Validation-messages.constants";
+import type { CrmLayout } from "@/constants/integration.constants";
 import type { LeadStatus } from "@/constants/lead-status.constants";
 import { useBulkDeleteBusinesses, useBulkUpdateBusinesses, useDeleteBusiness, useGetAssignees, useGetBusinesses } from "@/hooks/api/businesses.queries";
 import { useGetGeographyTree, useGetProfile, useGetProfiles } from "@/hooks/api/catalog.queries";
@@ -33,6 +34,7 @@ import {
     BULK_DELETE_DESCRIPTION_SUFFIX,
     DELETE_LEAD_DESCRIPTION_SUFFIX,
     DIRECTION_VALUES,
+    CRM_EXPORT_OPTIONS,
     EMPTY_KIND,
     EXPORT_FILE_PREFIX,
     EXPORT_FORMAT,
@@ -59,6 +61,7 @@ const urlState = {
     email: parseAsBoolean,
     website: parseAsBoolean,
     minScore: parseAsInteger,
+    minFit: parseAsInteger,
     source: parseAsString,
     sort: parseAsStringLiteral(SORT_VALUES),
     dir: parseAsStringLiteral(DIRECTION_VALUES),
@@ -80,6 +83,7 @@ const CLEARED_FILTERS = {
     email: null,
     website: null,
     minScore: null,
+    minFit: null,
     source: null,
 };
 
@@ -90,6 +94,8 @@ export const useLeadsPage = () => {
 
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [isExporting, setIsExporting] = useState(false);
+    const [analyzeIds, setAnalyzeIds] = useState<number[]>([]);
+    const [checkIds, setCheckIds] = useState<number[]>([]);
     const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
     const [leadToDelete, setLeadToDelete] = useState<TBusinessListItem | null>(null);
 
@@ -118,6 +124,7 @@ export const useLeadsPage = () => {
         has_email: state.email ? true : undefined,
         has_website: state.website ? true : undefined,
         min_score: state.minScore ?? undefined,
+        min_ai_fit: state.minFit ?? undefined,
         source: state.source ?? undefined,
         search: search || undefined,
     };
@@ -165,6 +172,7 @@ export const useLeadsPage = () => {
         state.email,
         state.website,
         state.minScore,
+        state.minFit,
         state.source,
     ].filter((value) => value !== null && value !== "" && value !== false).length;
 
@@ -220,6 +228,20 @@ export const useLeadsPage = () => {
         }
     };
 
+    const exportCrm = async (layout: CrmLayout) => {
+        const option = CRM_EXPORT_OPTIONS.find((candidate) => candidate.layout === layout) ?? CRM_EXPORT_OPTIONS[0];
+        setIsExporting(true);
+        try {
+            const blob = await ExportCrmCsv({ ...filters, sort, direction, layout });
+            saveBlob(blob, `${EXPORT_FILE_PREFIX}${option.layout}-${todayStamp()}.csv`);
+            showToast.success(`Exported ${pluralize(total, "lead", "leads")} for ${option.layout}`);
+        } catch (error) {
+            showToast.error(error instanceof Error ? await getBlobErrorMessage(error) : GENERIC_ERROR_MESSAGE);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     const applyBulkUpdate = async (change: TBulkChange, label: string) => {
         const { updated } = await bulkUpdate({ business_ids: selectedIds, ...change });
         showToast.success(`${label}: ${pluralize(updated, "lead", "leads")} updated`);
@@ -237,6 +259,22 @@ export const useLeadsPage = () => {
         setRowSelection({});
         if (leadId === leadToDelete.id) void setState({ lead: null });
         setLeadToDelete(null);
+    };
+
+    const openAnalyze = () => {
+        setAnalyzeIds(selectedIds);
+    };
+
+    const closeAnalyze = () => {
+        setAnalyzeIds([]);
+    };
+
+    const openCheck = () => {
+        setCheckIds(selectedIds);
+    };
+
+    const closeCheck = () => {
+        setCheckIds([]);
     };
 
     const openBulkDelete = () => {
@@ -307,6 +345,7 @@ export const useLeadsPage = () => {
         applyBulkUpdate,
         isBulkUpdating,
         exportLeads,
+        exportCrm,
         isExporting,
         isExportDisabled,
         isDeleteOpen,
@@ -324,6 +363,12 @@ export const useLeadsPage = () => {
         openLeadRow,
         openLead,
         closeLead,
+        analyzeIds,
+        openAnalyze,
+        closeAnalyze,
+        checkIds,
+        openCheck,
+        closeCheck,
     };
 };
 

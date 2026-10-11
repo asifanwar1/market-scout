@@ -10,10 +10,10 @@ from app.core.scouting.types import RawBusiness, SearchResult
 from app.features.businesses import ingest as businesses_ingest
 from app.features.businesses.models import Business, ContactPoint
 from app.features.geographies.models import Geography
+from app.features.jobs.models import Job
 from app.features.profiles.models import Profile
 from app.features.runs import service
 from app.features.runs.models import Run, RunTask
-from app.features.runs.worker import RunWorker
 from app.features.sources import service as sources_service
 from app.features.sources.schemas import SourceUpdate
 from scripts.seed import seed_geographies, seed_solar_profile
@@ -559,31 +559,77 @@ def test_cancelling_a_running_run_stops_between_searches(client, admin_user, aut
     assert db_session.query(Business).count() == 1
 
 
-def test_interrupted_run_is_recovered_and_can_be_resumed(client, admin_user, auth_headers, world, db_session):
-    headers = auth_headers(admin_user)
+def test_an_interrupted_run_with_tries_left_goes_back_in_the_queue_and_carries_on(client, admin_user, auth_headers, world, db_session):
     lahore = city(db_session, "lahore")
     interrupted = make_run(client, admin_user, auth_headers, payload(world, [lahore]))
-    waiting = make_run(client, admin_user, auth_headers, payload(world, [lahore], source_keys=["osm"], segment_slugs=["contractor"]))
 
     tasks = db_session.query(RunTask).filter_by(run_id=interrupted["id"]).order_by(RunTask.id).all()
     tasks[0].status, tasks[1].status = "done", "running"
-    db_session.query(Run).filter(Run.id == interrupted["id"]).update({"status": "running", "tasks_done": 1})
+    db_session.query(Run).filter(Run.id == interrupted["id"]).update(
+        {"status": "running", "tasks_done": 1, "stats": {"osm": {"tasks_done": 1, "found": 4, "new": 4}}}
+    )
     db_session.commit()
 
-    still_queued = service.recover_interrupted_runs(db_session)
+    assert service.recover_run(db_session, interrupted["id"], True) is True
 
-    assert still_queued == [waiting["id"]]
     run = db_session.get(Run, interrupted["id"])
-    assert run.status == "failed" and "restart" in run.error
+    assert run.status == "queued" and run.error is None
     assert [t.status for t in db_session.query(RunTask).filter_by(run_id=run.id).order_by(RunTask.id)][:2] == ["done", "pending"]
-
-    resumed = client.post(f"/api/v1/runs/{interrupted['id']}/resume", headers=headers)
-    assert resumed.status_code == 200 and resumed.json()["status"] == "queued" and resumed.json()["error"] is None
 
     source = FakeSource("osm", [raw(1)])
     finished = service.execute_run(db_session, interrupted["id"], source_builder=builder(osm=source))
     assert finished.status == "completed"
     assert len(source.calls) == osm_dealer_terms(world) - 1
+    assert finished.stats["osm"]["found"] > 4 and finished.stats["osm"]["new"] >= 4
+
+
+def test_an_interrupted_run_out_of_tries_fails_and_can_be_resumed_by_hand(client, admin_user, auth_headers, world, db_session):
+    headers = auth_headers(admin_user)
+    interrupted = make_run(client, admin_user, auth_headers, payload(world, [city(db_session, "lahore")]))
+    tasks = db_session.query(RunTask).filter_by(run_id=interrupted["id"]).order_by(RunTask.id).all()
+    tasks[0].status, tasks[1].status = "done", "running"
+    db_session.query(Run).filter(Run.id == interrupted["id"]).update({"status": "running", "tasks_done": 1})
+    db_session.commit()
+
+    assert service.recover_run(db_session, interrupted["id"], False) is False
+
+    run = db_session.get(Run, interrupted["id"])
+    assert run.status == "failed" and "restart" in run.error
+    assert [t.status for t in db_session.query(RunTask).filter_by(run_id=run.id).order_by(RunTask.id)][:2] == ["done", "pending"]
+
+    db_session.query(Job).filter_by(kind="run", ref_id=interrupted["id"]).update({"status": "done"})
+    db_session.commit()
+    resumed = client.post(f"/api/v1/runs/{interrupted['id']}/resume", headers=headers)
+    assert resumed.status_code == 200 and resumed.json()["status"] == "queued" and resumed.json()["error"] is None
+    assert db_session.query(Job).filter_by(kind="run", ref_id=interrupted["id"], status="queued").count() == 1
+
+
+def test_a_run_that_was_being_cancelled_when_interrupted_finishes_as_cancelled(client, admin_user, auth_headers, world, db_session):
+    interrupted = make_run(client, admin_user, auth_headers, payload(world, [city(db_session, "lahore")]))
+    db_session.query(RunTask).filter_by(run_id=interrupted["id"]).first().status = "running"
+    db_session.query(Run).filter(Run.id == interrupted["id"]).update({"status": "cancelling"})
+    db_session.commit()
+
+    assert service.recover_run(db_session, interrupted["id"], True) is False
+
+    run = db_session.get(Run, interrupted["id"])
+    assert run.status == "cancelled" and run.finished_at is not None
+    assert db_session.query(RunTask).filter_by(run_id=run.id, status="pending").count() == 0
+
+
+def test_recovering_a_run_that_is_not_running_does_nothing(client, admin_user, auth_headers, world, db_session):
+    queued = make_run(client, admin_user, auth_headers, payload(world, [city(db_session, "lahore")]))
+
+    assert service.recover_run(db_session, queued["id"], True) is False
+    assert service.recover_run(db_session, 999999, True) is False
+    assert db_session.get(Run, queued["id"]).status == "queued"
+
+
+def test_starting_a_run_queues_a_job_in_the_same_transaction(client, admin_user, auth_headers, world, db_session):
+    run = make_run(client, admin_user, auth_headers, payload(world, [city(db_session, "lahore")]))
+
+    jobs = db_session.query(Job).filter_by(kind="run", ref_id=run["id"]).all()
+    assert [job.status for job in jobs] == ["queued"]
 
 
 def test_only_interrupted_runs_with_work_left_can_be_resumed(client, admin_user, auth_headers, world, db_session):
@@ -748,41 +794,6 @@ def test_cancelling_during_enrichment_stops_processing(client, admin_user, auth_
 
     assert finished.status == "cancelled"
     assert finished.enrich_total == 8 and finished.enrich_done == 1
-
-
-def test_worker_runs_queued_ids_in_order_on_its_own_thread_and_survives_errors():
-    done = threading.Event()
-    seen, threads = [], set()
-
-    def executor(run_id):
-        seen.append(run_id)
-        threads.add(threading.current_thread().name)
-        if run_id == 1:
-            raise RuntimeError("crash")
-        if run_id == 3:
-            done.set()
-
-    worker = RunWorker()
-    worker.start(executor)
-    try:
-        for run_id in (1, 2, 3):
-            worker.enqueue(run_id)
-        assert done.wait(5)
-    finally:
-        worker.stop()
-
-    assert seen == [1, 2, 3]
-    assert threads == {"run-worker"} and not worker.is_running
-
-
-def test_worker_start_is_idempotent_and_stoppable():
-    worker = RunWorker()
-    worker.start(lambda run_id: None)
-    thread = worker._thread
-    worker.start(lambda run_id: None)
-    assert worker._thread is thread and worker.is_running
-    worker.stop()
-    assert not worker.is_running
 
 
 def test_estimate_prices_each_paid_source_with_its_own_rate_and_page_limit(client, admin_user, auth_headers, world, db_session, monkeypatch):

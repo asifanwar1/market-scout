@@ -3,13 +3,14 @@ import logging
 import time
 from dataclasses import asdict
 from datetime import UTC, datetime
+from itertools import islice
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.constants import BYTES_PER_MEGABYTE, FIRST_PAGE
-from app.core.database import WorkerSessionLocal, WriteSessionLocal
+from app.core.database import WorkerSessionLocal
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.importing.cities import CityMatcher
 from app.core.importing.files import ImportFileError, Table, read_table
@@ -29,11 +30,14 @@ from app.features.businesses.ingest import STAT_FIELDS, IngestContext
 from app.features.geographies.models import Geography, GeographyLevel
 from app.features.imports.models import Import, ImportStatus
 from app.features.imports.schemas import ImportOptions
-from app.features.imports.worker import import_worker
+from app.features.jobs import service as jobs_service
+from app.features.jobs.handler import JobHandler
+from app.features.jobs.models import JobKind
 from app.features.profiles.models import Profile
 from app.features.sheets import service as sheets_service
 
 FILENAME_MAX_LENGTH = 200
+INTERRUPTED_MESSAGE = "Interrupted by a server restart. Import the file again: rows already stored are recognised, not duplicated."
 
 
 DEFAULT_LIMIT = 10
@@ -183,12 +187,17 @@ def create_import(db: Session, filename: str, content: bytes, options: ImportOpt
         stats={**dict.fromkeys(STAT_FIELDS, 0), "no_city": no_city, "shared_phones": len(shared_phones), "looked_up": len(found_places)},
     )
     db.add(record)
-    db.commit()
+    db.flush()
 
     path = _rows_file(record.id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    import_worker.enqueue(record.id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        jobs_service.enqueue(db, JobKind.IMPORT, record.id)
+        db.commit()
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
     db.refresh(record)
     return record
 
@@ -288,7 +297,7 @@ def execute_import(db: Session, import_id: int) -> Import | None:
     cancelled = False
     with path.open(encoding="utf-8") as handle:
         batch: list[dict] = []
-        for line in handle:
+        for line in islice(handle, record.rows_done, None):
             batch.append(json.loads(line))
             if len(batch) >= BATCH_SIZE:
                 _store_batch(db, record, batch, scoring, totals)
@@ -353,23 +362,41 @@ def run_import_in_new_session(import_id: int) -> None:
         sheets_service.notify_changed()
 
 
-def recover_interrupted_imports(db: Session) -> list[int]:
-    stuck = db.query(Import).filter(Import.status.in_([ImportStatus.RUNNING.value, ImportStatus.CANCELLING.value])).all()
-    for record in stuck:
-        record.status = ImportStatus.FAILED.value
-        record.error = "Interrupted by a server restart. Import the file again: rows already stored are recognised, not duplicated."
+def recover_import(db: Session, import_id: int, retries_left: bool) -> bool:
+    record = db.get(Import, import_id, populate_existing=True)
+    if record is None or record.status not in (ImportStatus.RUNNING.value, ImportStatus.CANCELLING.value):
+        return False
+
+    if record.status == ImportStatus.CANCELLING.value:
+        record.status = ImportStatus.CANCELLED.value
         record.finished_at = _now()
         _rows_file(record.id).unlink(missing_ok=True)
+        db.commit()
+        return False
+
+    if retries_left and _rows_file(record.id).exists():
+        record.status = ImportStatus.QUEUED.value
+        record.error = None
+        db.commit()
+        return True
+
+    record.status = ImportStatus.FAILED.value
+    record.error = INTERRUPTED_MESSAGE
+    record.finished_at = _now()
+    _rows_file(record.id).unlink(missing_ok=True)
     db.commit()
+    return False
+
+
+def _queued_import_ids(db: Session) -> list[int]:
     return [row[0] for row in db.query(Import.id).filter(Import.status == ImportStatus.QUEUED.value).order_by(Import.id)]
 
 
-def start_worker() -> None:
-    db = WriteSessionLocal()
-    try:
-        queued = recover_interrupted_imports(db)
-    finally:
-        db.close()
-    import_worker.start(run_import_in_new_session)
-    for import_id in queued:
-        import_worker.enqueue(import_id)
+def _running_import_ids(db: Session) -> list[int]:
+    statuses = [ImportStatus.RUNNING.value, ImportStatus.CANCELLING.value]
+    return [row[0] for row in db.query(Import.id).filter(Import.status.in_(statuses)).order_by(Import.id)]
+
+
+JOB_HANDLER = JobHandler(
+    execute=run_import_in_new_session, recover=recover_import, queued_ids=_queued_import_ids, running_ids=_running_import_ids
+)

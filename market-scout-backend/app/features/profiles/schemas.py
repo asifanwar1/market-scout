@@ -75,6 +75,9 @@ class MatchRules(BaseModel):
         return cleaned
 
 
+IDEAL_CUSTOMER_MAX_LENGTH = 2000
+
+
 class ScoringConfig(BaseModel):
     has_phone: int = Field(default=DEFAULT_WEIGHT_PHONE, ge=SCORE_MIN, le=SCORE_MAX)
     has_whatsapp_likely: int = Field(default=DEFAULT_WEIGHT_WHATSAPP, ge=SCORE_MIN, le=SCORE_MAX)
@@ -168,6 +171,7 @@ def _check_search_terms(search_terms: list[SearchTermCreate], segments: list[Seg
 class ProfileBase(BaseModel):
     name: str = Field(min_length=NAME_MIN_LENGTH, max_length=NAME_MAX_LENGTH)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
+    ideal_customer: Optional[str] = Field(default=None, max_length=IDEAL_CUSTOMER_MAX_LENGTH)
     is_active: bool = True
     scoring_config: ScoringConfig = Field(default_factory=ScoringConfig)
 
@@ -186,6 +190,7 @@ class ProfileCreate(ProfileBase):
 class ProfileUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=NAME_MIN_LENGTH, max_length=NAME_MAX_LENGTH)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
+    ideal_customer: Optional[str] = Field(default=None, max_length=IDEAL_CUSTOMER_MAX_LENGTH)
     is_active: Optional[bool] = None
     scoring_config: Optional[ScoringConfig] = None
     segments: Optional[list[SegmentUpsert]] = Field(default=None, max_length=SEGMENTS_MAX)

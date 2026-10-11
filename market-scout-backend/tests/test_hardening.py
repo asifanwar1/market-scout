@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.core.dependencies import get_db
+from app.features.api_keys.dependencies import get_api_key
 from app.features.auth.dependencies import get_current_admin_user, get_current_user
 from app.main import app
 
@@ -52,6 +53,42 @@ ADMIN_ONLY = {
     ("PUT", "/api/v1/sheets/"),
     ("POST", "/api/v1/sheets/test"),
     ("POST", "/api/v1/sheets/sync"),
+    ("GET", "/api/v1/ai/settings"),
+    ("PUT", "/api/v1/ai/settings"),
+    ("POST", "/api/v1/ai/settings/test"),
+    ("GET", "/api/v1/jobs/status"),
+    ("GET", "/api/v1/alerts/settings"),
+    ("PUT", "/api/v1/alerts/settings"),
+    ("POST", "/api/v1/outreach/templates"),
+    ("GET", "/api/v1/api-keys/"),
+    ("POST", "/api/v1/api-keys/"),
+    ("DELETE", "/api/v1/api-keys/{key_id}"),
+    ("GET", "/api/v1/webhooks/config"),
+    ("GET", "/api/v1/webhooks/"),
+    ("POST", "/api/v1/webhooks/"),
+    ("PATCH", "/api/v1/webhooks/{hook_id}"),
+    ("DELETE", "/api/v1/webhooks/{hook_id}"),
+    ("POST", "/api/v1/webhooks/{hook_id}/rotate-secret"),
+    ("POST", "/api/v1/webhooks/{hook_id}/test"),
+    ("GET", "/api/v1/webhooks/{hook_id}/deliveries"),
+    ("POST", "/api/v1/webhooks/deliveries/{delivery_id}/retry"),
+    ("PATCH", "/api/v1/outreach/templates/{template_id}"),
+    ("DELETE", "/api/v1/outreach/templates/{template_id}"),
+    ("GET", "/api/v1/quality/settings"),
+    ("PUT", "/api/v1/quality/settings"),
+    ("GET", "/api/v1/quality/duplicates"),
+    ("POST", "/api/v1/quality/duplicates/scan"),
+    ("POST", "/api/v1/quality/duplicates/{candidate_id}/merge"),
+    ("POST", "/api/v1/quality/duplicates/{candidate_id}/dismiss"),
+    ("GET", "/api/v1/quality/scoring"),
+    ("POST", "/api/v1/quality/scoring/apply"),
+    ("POST", "/api/v1/quality/scoring/revert"),
+    ("GET", "/api/v1/schedules/"),
+    ("POST", "/api/v1/schedules/"),
+    ("GET", "/api/v1/schedules/{schedule_id}"),
+    ("PUT", "/api/v1/schedules/{schedule_id}"),
+    ("DELETE", "/api/v1/schedules/{schedule_id}"),
+    ("POST", "/api/v1/schedules/{schedule_id}/run-now"),
     ("POST", "/api/v1/imports/preview"),
     ("POST", "/api/v1/imports/"),
     ("GET", "/api/v1/imports/"),
@@ -74,7 +111,12 @@ def _routes() -> list[tuple[str, str, str]]:
         if not isinstance(route, APIRoute):
             continue
         calls = _dependency_calls(route.dependant)
-        access = "admin" if get_current_admin_user in calls else "user" if get_current_user in calls else "public"
+        access = (
+            "admin" if get_current_admin_user in calls
+            else "user" if get_current_user in calls
+            else "api_key" if get_api_key in calls
+            else "public"
+        )
         for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
             found.append((method, route.path, access))
     return found
@@ -165,7 +207,7 @@ def test_security_headers_do_not_leak_the_server_stack_on_errors(client):
 
 
 def test_health_reports_ok_when_the_database_answers(client):
-    assert client.get("/health").json() == {"status": "ok", "database": "ok"}
+    assert client.get("/health").json() == {"status": "ok", "database": "ok", "workers": "disabled"}
 
 
 def test_health_reports_unavailable_when_the_database_is_down(client):

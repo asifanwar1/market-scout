@@ -56,6 +56,8 @@ class Run(Base):
     profile_id = Column(Integer, ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     profile_name = Column(String, nullable=False)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    schedule_id = Column(Integer, ForeignKey("schedules.id", ondelete="SET NULL"), nullable=True, index=True)
+    schedule_name = Column(String, nullable=True)
     status = Column(String, nullable=False, default=RunStatus.QUEUED.value, index=True)
     source_keys = Column(JSON, nullable=False, default=list)
     segment_slugs = Column(JSON, nullable=True)

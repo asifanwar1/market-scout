@@ -18,6 +18,9 @@ from app.features.pipeline.models import (
 )
 from app.features.pipeline.schemas import ActivityCreate, OutcomeInput, TaskCreate, TaskUpdate
 from app.features.users.models import User
+from app.features.webhooks import events as webhook_events
+from app.features.webhooks import service as webhooks_service
+from app.features.webhooks.models import WebhookEvent
 
 DEFAULT_ACTIVITY_LIMIT = 50
 DEFAULT_TASK_LIMIT = 50
@@ -115,6 +118,17 @@ def apply_status_change(
         add_system_activity(db, business.id, ActivityKind.STATUS_CHANGE, actor_id, from_value=before, to_value=new_status)
         business.lead_status = new_status
     _sync_outcome(db, business.id, new_status, changed, outcome_in, actor_id)
+    if changed:
+        webhooks_service.emit(
+            db,
+            WebhookEvent.LEAD_STATUS_CHANGED,
+            lambda: {
+                "lead": webhook_events.lead_snapshot(db, business),
+                "from_status": before,
+                "to_status": new_status,
+                "outcome": webhook_events.outcome_snapshot(db, business.id),
+            },
+        )
     return changed
 
 

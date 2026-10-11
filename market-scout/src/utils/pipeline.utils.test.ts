@@ -155,6 +155,20 @@ describe("describeActivity", () => {
         });
     });
 
+    it("shows a segment changed by the AI suggestion", () => {
+        expect(describeActivity(activity({ kind: "segment_changed", from_value: "Dealer", to_value: "Installer", summary: "Applied the AI's suggestion" }))).toEqual({
+            title: "Segment: Dealer → Installer",
+            detail: "Applied the AI's suggestion",
+        });
+    });
+
+    it("shows a merge with a duplicate and what was merged", () => {
+        expect(describeActivity(activity({ kind: "merged", summary: 'Merged with "Noor Solar" (a duplicate)' }))).toEqual({
+            title: "Merged with a duplicate",
+            detail: 'Merged with "Noor Solar" (a duplicate)',
+        });
+    });
+
     it("keeps an unknown status readable", () => {
         expect(describeActivity(activity({ kind: "status_change", from_value: "odd", to_value: null })).title).toBe("Status: odd → —");
     });

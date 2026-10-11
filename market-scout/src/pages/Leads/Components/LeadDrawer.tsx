@@ -5,8 +5,10 @@ import {
     Mail,
     MapPin,
     MessageCircle,
+    MessageSquare,
     Phone,
     Save,
+    ShieldCheck,
     Star,
 } from "lucide-react";
 import { useState } from "react";
@@ -18,6 +20,7 @@ import Loading from "@/components/custom/Loading";
 import ScoreBadge from "@/components/custom/ScoreBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -42,6 +45,7 @@ import type { TUpdateBusinessBody } from "@/api/services/businesses/businesses.r
 import type { TOutcomeInput } from "@/api/services/pipeline/pipeline.request.types";
 import type { ClosingStatus } from "@/constants/pipeline.constants";
 import { isClosingStatus } from "@/utils/pipeline.utils";
+import AiAssessment from "./AiAssessment";
 import LeadTasks from "./LeadTasks";
 import LeadTimeline from "./LeadTimeline";
 import OutcomeDialog from "./OutcomeDialog";
@@ -50,6 +54,10 @@ import { showToast } from "@/lib/toast";
 import { formatDate, formatDateTime, formatPhone, getSourceLabel, whatsappLink } from "@/utils/format.utils";
 import { NOTES_MAX_LENGTH, REASON_MAX_LENGTH } from "@/constants/limits.constants";
 import { CONTACT_KIND } from "@/constants/source.constants";
+import { CHECK_STATUS, WEBSITE_STATUS } from "@/constants/quality.constants";
+import CheckContactsDialog from "./CheckContactsDialog";
+import SendMessageDialog from "./SendMessageDialog";
+import { CONTACT_NAME_MAX_LENGTH } from "@/constants/outreach.constants";
 
 const NOT_ASSIGNED = "none";
 
@@ -115,6 +123,21 @@ const ContactRow = ({ contact }: { contact: TContactPoint }) => {
                     WhatsApp
                 </Badge>
             )}
+            {contact.check_status === CHECK_STATUS.OK && (
+                <Badge variant="secondary" title={contact.check_note ?? undefined} className="bg-success text-success-foreground">
+                    Checked
+                </Badge>
+            )}
+            {contact.check_status === CHECK_STATUS.BAD && (
+                <Badge variant="secondary" title={contact.check_note ?? undefined} className="bg-destructive/10 text-destructive">
+                    Won't deliver
+                </Badge>
+            )}
+            {contact.check_status === CHECK_STATUS.WARNING && (
+                <Badge variant="secondary" title={contact.check_note ?? undefined} className="bg-warning text-warning-foreground">
+                    Shared number
+                </Badge>
+            )}
             {isPhone && (
                 <>
                     <Button asChild variant="ghost" size="icon-xs" aria-label={`Call ${display}`}>
@@ -161,8 +184,12 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
     const [blockReason, setBlockReason] = useState("");
     const [pendingStatus, setPendingStatus] = useState<ClosingStatus | null>(null);
     const [isEditingOutcome, setIsEditingOutcome] = useState(false);
+    const [isChecking, setIsChecking] = useState(false);
+    const [isMessaging, setIsMessaging] = useState(false);
+    const [contactName, setContactName] = useState(lead.contact_name ?? "");
 
     const notesChanged = notes.trim() !== (lead.notes ?? "");
+    const contactNameChanged = contactName.trim() !== (lead.contact_name ?? "");
     const topClassification = lead.classifications[0];
     const contacts = [...lead.contacts].sort((a, b) => a.kind.localeCompare(b.kind) || a.id - b.id);
 
@@ -312,6 +339,10 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
                 </div>
             </Section>
 
+            <Section title="AI assessment">
+                <AiAssessment lead={lead} />
+            </Section>
+
             <Section title="Follow-ups">
                 <LeadTasks businessId={lead.id} />
             </Section>
@@ -321,6 +352,26 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
             </Section>
 
             <Section title="Contact">
+                <div className="space-y-1.5">
+                    <Label htmlFor="lead-contact-name">Contact person</Label>
+                    <div className="flex gap-2">
+                        <Input
+                            id="lead-contact-name"
+                            maxLength={CONTACT_NAME_MAX_LENGTH}
+                            value={contactName}
+                            placeholder="Used in messages as the person's name"
+                            onChange={(event) => setContactName(event.target.value)}
+                        />
+                        <Button
+                            size="sm"
+                            disabled={!contactNameChanged || isSaving}
+                            onClick={() => save({ contact_name: contactName.trim() || null }, "Contact person saved")}
+                        >
+                            <Save />
+                            Save
+                        </Button>
+                    </div>
+                </div>
                 {contacts.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                         No phone or email found yet. A run with website enrichment may find some.
@@ -341,6 +392,24 @@ const LeadDetails = ({ lead, onClose }: { lead: TBusinessDetail; onClose: () => 
                         {lead.website.replace(/^https?:\/\//, "")}
                     </a>
                 )}
+                {lead.website && lead.website_status === WEBSITE_STATUS.DEAD && (
+                    <p className="text-xs text-destructive">{lead.website_check_note ?? "The website is not answering"}</p>
+                )}
+                {lead.website_checked_at && lead.website_status === WEBSITE_STATUS.OK && (
+                    <p className="text-xs text-muted-foreground">Website checked {formatDate(lead.website_checked_at)}</p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => setIsMessaging(true)}>
+                        <MessageSquare />
+                        Message
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setIsChecking(true)}>
+                        <ShieldCheck />
+                        Check contacts
+                    </Button>
+                </div>
+                <SendMessageDialog lead={lead} open={isMessaging} onClose={() => setIsMessaging(false)} />
+                <CheckContactsDialog leadIds={isChecking ? [lead.id] : []} onClose={() => setIsChecking(false)} />
             </Section>
 
             <Section title="Details">

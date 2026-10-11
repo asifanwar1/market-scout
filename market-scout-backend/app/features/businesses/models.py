@@ -28,6 +28,17 @@ class LeadStatus(str, PyEnum):
     NOT_INTERESTED = "not_interested"
 
 
+class CheckStatus(str, PyEnum):
+    OK = "ok"
+    BAD = "bad"
+    WARNING = "warning"
+
+
+class WebsiteStatus(str, PyEnum):
+    OK = "ok"
+    DEAD = "dead"
+
+
 class ContactKind(str, PyEnum):
     PHONE = "phone"
     EMAIL = "email"
@@ -55,10 +66,14 @@ class Business(Base):
     lead_status = Column(String, nullable=False, default=LeadStatus.NEW.value, index=True)
     assigned_to_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     notes = Column(Text, nullable=True)
+    contact_name = Column(String, nullable=True)
 
     first_seen_at = Column(DateTime(timezone=True), nullable=False)
     last_seen_at = Column(DateTime(timezone=True), nullable=False)
     enriched_at = Column(DateTime(timezone=True), nullable=True)
+    website_status = Column(String, nullable=True)
+    website_check_note = Column(String, nullable=True)
+    website_checked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -84,6 +99,9 @@ class ContactPoint(Base):
     whatsapp_likely = Column(Boolean, nullable=False, default=False)
     source_key = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    check_status = Column(String, nullable=True)
+    check_note = Column(String, nullable=True)
+    checked_at = Column(DateTime(timezone=True), nullable=True)
 
     business = relationship("Business", back_populates="contact_points")
 

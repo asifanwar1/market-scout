@@ -3,6 +3,7 @@ import { Globe, MessageCircle, Trash2 } from "lucide-react";
 
 import type { TBusinessListItem } from "@/api/services/businesses/businesses.response.types";
 import ScoreBadge from "@/components/custom/ScoreBadge";
+import { AI_FIT_TITLE } from "@/constants/ai.constants";
 import StatusBadge from "@/components/custom/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,12 @@ const baseColumns: ColumnDef<TBusinessListItem>[] = [
         header: "Score",
         accessorFn: (row) => row.score,
         cell: ({ row }) => <ScoreBadge score={row.original.score} />,
+    },
+    {
+        id: "ai_fit",
+        header: "AI fit",
+        accessorFn: (row) => row.ai_fit,
+        cell: ({ row }) => <ScoreBadge score={row.original.ai_fit} title={AI_FIT_TITLE} />,
     },
     {
         id: "contact",

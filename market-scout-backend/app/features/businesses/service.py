@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session, defer, joinedload, selectinload
 
 from app.core.constants import EMAIL_SEPARATOR, FIRST_PAGE
 from app.core.exceptions import BadRequestException, NotFoundException
+from app.features.ai import service as ai_service
+from app.features.ai.models import AnalysisStatus, LeadAiResult
 from app.features.businesses.models import (
     Business,
     BusinessClassification,
@@ -47,6 +49,7 @@ class BusinessFilters:
     unassigned: bool = False
     source: str | None = None
     min_score: int | None = None
+    min_ai_fit: int | None = None
     search: str | None = None
 
 
@@ -75,6 +78,14 @@ def _apply_filters(db: Session, query, f: BusinessFilters):
         if f.profile_id is not None:
             score_conditions.append(BusinessClassification.profile_id == f.profile_id)
         query = query.filter(Business.classifications.any(and_(*score_conditions)))
+
+    if f.min_ai_fit is not None:
+        fitted = select(LeadAiResult.business_id).where(
+            LeadAiResult.status == AnalysisStatus.OK.value, LeadAiResult.fit_score >= f.min_ai_fit
+        )
+        if f.profile_id is not None:
+            fitted = fitted.where(LeadAiResult.profile_id == f.profile_id)
+        query = query.filter(Business.id.in_(fitted))
 
     if f.geography_id is not None:
         query = query.filter(Business.geography_id.in_(geographies_service.get_city_ids(db, f.geography_id)))
@@ -138,10 +149,20 @@ def _score_subquery(profile_id: int | None):
     return stmt.correlate(Business).scalar_subquery()
 
 
+def _ai_fit_subquery(profile_id: int | None):
+    stmt = select(func.coalesce(func.max(LeadAiResult.fit_score), -1)).where(
+        LeadAiResult.business_id == Business.id, LeadAiResult.status == AnalysisStatus.OK.value
+    )
+    if profile_id is not None:
+        stmt = stmt.where(LeadAiResult.profile_id == profile_id)
+    return stmt.correlate(Business).scalar_subquery()
+
+
 def _order_clauses(sort: BusinessSort | None, direction: SortDirection | None, profile_id: int | None) -> list:
     sort = sort or (BusinessSort.SCORE if profile_id is not None else BusinessSort.NEWEST)
     column = {
         BusinessSort.SCORE: _score_subquery(profile_id),
+        BusinessSort.AI_FIT: _ai_fit_subquery(profile_id),
         BusinessSort.NEWEST: Business.first_seen_at,
         BusinessSort.LAST_SEEN: Business.last_seen_at,
         BusinessSort.NAME: func.lower(Business.name),
@@ -173,7 +194,8 @@ def get_businesses(
         .all()
     )
     lookups = _load_lookups(db, businesses)
-    return {"data": [_to_list_item(b, filters.profile_id, lookups) for b in businesses], "count": total_count}
+    fits = ai_service.fit_scores(db, [b.id for b in businesses], filters.profile_id)
+    return {"data": [_to_list_item(b, filters.profile_id, lookups, fits.get(b.id)) for b in businesses], "count": total_count}
 
 
 def iter_business_batches(
@@ -245,7 +267,7 @@ def _place(business: Business) -> tuple[str | None, str | None]:
     return (city.name if city else None, province.name if province else None)
 
 
-def _to_list_item(business: Business, profile_id: int | None, lookups: _Lookups) -> dict:
+def _to_list_item(business: Business, profile_id: int | None, lookups: _Lookups, ai_fit: int | None = None) -> dict:
     classifications = business.classifications
     if profile_id is not None:
         classifications = [c for c in classifications if c.profile_id == profile_id]
@@ -266,6 +288,7 @@ def _to_list_item(business: Business, profile_id: int | None, lookups: _Lookups)
         "segment_slug": segment[0] if segment else None,
         "segment_name": segment[1] if segment else None,
         "score": chosen.score if chosen else None,
+        "ai_fit": ai_fit,
         "lead_status": business.lead_status,
         "assigned_to": _assigned(business, lookups),
         "primary_phone": phones[0].value if phones else None,
@@ -301,6 +324,8 @@ def get_business_detail(db: Session, business_id: int) -> dict:
     business = get_business_by_id(db, business_id)
     lookups = _load_lookups(db, [business], with_sources=False)
     city, province = _place(business)
+    top = max(business.classifications, key=lambda c: c.score, default=None)
+    top_profile_id = top.profile_id if top else None
 
     return {
         "id": business.id,
@@ -312,13 +337,18 @@ def get_business_detail(db: Session, business_id: int) -> dict:
         "latitude": business.latitude,
         "longitude": business.longitude,
         "website": business.website,
+        "website_status": business.website_status,
+        "website_check_note": business.website_check_note,
+        "website_checked_at": business.website_checked_at,
         "rating": business.rating,
         "review_count": business.review_count,
         "categories": business.categories or [],
         "lead_status": business.lead_status,
         "assigned_to": _assigned(business, lookups),
         "notes": business.notes,
+        "contact_name": business.contact_name,
         "outcome": pipeline_service.get_outcome(db, business.id),
+        "ai": ai_service.get_result_view(db, business.id, top_profile_id),
         "classifications": [
             {
                 "profile_id": c.profile_id,
@@ -366,6 +396,8 @@ def update_business(db: Session, business_id: int, update_in: BusinessUpdate, ac
         pipeline_service.record_assignment(db, business.id, before, _user_name(db, data["assigned_to_id"]), actor_id)
     if "notes" in data:
         business.notes = (data["notes"] or "").strip() or None
+    if "contact_name" in data:
+        business.contact_name = (data["contact_name"] or "").strip() or None
     db.commit()
     return get_business_detail(db, business_id)
 

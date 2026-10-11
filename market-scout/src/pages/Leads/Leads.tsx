@@ -4,6 +4,8 @@ import PageHeader from "@/components/custom/PageHeader";
 import Pagination from "@/components/custom/Pagination";
 import BulkActionsBar from "./Components/BulkActionsBar";
 import ExportMenu from "./Components/ExportMenu";
+import AnalyzeDialog from "./Components/AnalyzeDialog";
+import CheckContactsDialog from "./Components/CheckContactsDialog";
 import LeadDrawer from "./Components/LeadDrawer";
 import LeadsEmptyState from "./Components/LeadsEmptyState";
 import LeadsFilters from "./Components/LeadsFilters";
@@ -38,6 +40,11 @@ const Leads = () => {
         setPage,
         onPageSizeChange,
         closeLead,
+        activeProfileId,
+        analyzeIds,
+        closeAnalyze,
+        checkIds,
+        closeCheck,
         openLeadRow,
         getLeadRowId,
         isDeleteOpen,
@@ -89,6 +96,10 @@ const Leads = () => {
             )}
 
             <LeadDrawer leadId={leadId} onClose={closeLead} />
+
+            <AnalyzeDialog leadIds={analyzeIds} profileId={activeProfileId} onClose={closeAnalyze} />
+
+            <CheckContactsDialog leadIds={checkIds} onClose={closeCheck} />
 
             <ConfirmationModal
                 open={isDeleteOpen}

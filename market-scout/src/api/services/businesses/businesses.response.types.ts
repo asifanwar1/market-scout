@@ -1,4 +1,5 @@
 import type { LeadStatus } from "@/constants/lead-status.constants";
+import type { TAiResult } from "@/api/services/ai/ai.response.types";
 import type { TOutcome } from "@/api/services/pipeline/pipeline.response.types";
 import type { TListResponse } from "@/api/types/common";
 
@@ -17,6 +18,7 @@ export type TBusinessListItem = {
     segment_slug: string | null;
     segment_name: string | null;
     score: number | null;
+    ai_fit: number | null;
     lead_status: LeadStatus;
     assigned_to: TAssignedUser | null;
     primary_phone: string | null;
@@ -47,6 +49,9 @@ export type TContactPoint = {
     whatsapp_likely: boolean;
     source_key: string;
     created_at: string | null;
+    check_status: string | null;
+    check_note: string | null;
+    checked_at: string | null;
 };
 
 export type TClassification = {
@@ -73,13 +78,18 @@ export type TBusinessDetail = {
     latitude: number | null;
     longitude: number | null;
     website: string | null;
+    website_status: string | null;
+    website_check_note: string | null;
+    website_checked_at: string | null;
     rating: number | null;
     review_count: number | null;
     categories: string[];
     lead_status: LeadStatus;
     assigned_to: TAssignedUser | null;
     notes: string | null;
+    contact_name: string | null;
     outcome: TOutcome | null;
+    ai: TAiResult | null;
     classifications: TClassification[];
     contacts: TContactPoint[];
     sources: TSourceRecord[];

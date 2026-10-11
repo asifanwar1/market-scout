@@ -29,6 +29,7 @@ Finding the right businesses in a market is slow manual work: searching maps, co
 - Results from different sources are merged into **one lead per business** (same website, same phone with a similar name, or the same spot with a near-identical name).
 - Every phone and email records which source reported it, and each source's raw answer is kept.
 - Each lead gets a **score** from the profile's weights for what it has: phone, WhatsApp-capable mobile, website, email, reviews, and a name that matches its segment. Leads are shown best first.
+- On request, an **AI assistant** (Claude) reads a lead's website and adds a summary, a suggested segment and an **AI fit** score against the ideal customer you describe on the profile. You can sort and filter by it. It is advice only, runs only when someone asks, shows a cost estimate first, and stops at a monthly budget.
 
 ### 4. Let the sales team work the leads
 - Filter, sort and search leads by segment, city, province, contact details, status, owner, source and minimum score.
@@ -62,11 +63,11 @@ The Insights screen turns the stored data into market intelligence:
 
 ## How it works at a glance
 
-1. An admin picks a profile, cities and sources and starts a **run**. The app shows the estimated searches, time and cost first.
+1. An admin picks a profile, cities and sources and starts a **run**, or saves it as a **repeating search** that runs daily, weekly or monthly. The app shows the estimated searches, time and cost first.
 2. A background worker searches each source, reads websites for contact details, and stores what it finds.
 3. Results are normalised, de-duplicated against existing leads, scored, and filtered against do-not-contact.
-4. Sales opens the Leads page, works the list, and the Google Sheet refreshes in the background.
-5. Insights shows what is covered and where to search next.
+4. Sales opens the Leads page, works the list, and the Google Sheet refreshes in the background. From a lead, **Message** fills a template, opens WhatsApp or the mail app, and logs the message on the lead once the person confirms they sent it. Other software can read and update leads through the public API with a key, and webhooks announce new leads, status changes, alerts and sent messages to it.
+5. Data quality checks contacts (email domains, websites), queues possible duplicates for your decision, and compares won and lost deals to suggest score weights. Insights shows what is covered and where to search next. When a run finishes, Alerts flags new high-scoring leads, fast-growing businesses and leads that gained a phone or email.
 
 ## Technology
 
@@ -83,8 +84,8 @@ The backend follows a feature-based structure (one folder per feature with route
 
 - It does not send messages. It finds and organises leads; how your team contacts them is up to you.
 - The Google Sheet sync is one-way, from app to sheet. Edits in the sheet are overwritten.
-- There is no LLM-based classification.
-- There is no job queue. Runs execute on a background thread inside one server process, so it should run as a single process until it moves to a real queue.
+- The AI assistant never changes a lead by itself, and it needs an Anthropic API key and a monthly budget before it can run.
+- Background work (runs, imports, AI batches) is saved in the database and carries on after a restart or a crash, but it still runs inside one server process. Running on several servers would need a proper queue service.
 - It runs on SQLite today. That is fine for one machine and would need PostgreSQL to scale.
 
 ## Using it for another industry or country

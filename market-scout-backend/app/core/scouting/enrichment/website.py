@@ -1,4 +1,5 @@
 import ipaddress
+import re
 import socket
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -29,9 +30,24 @@ WHATSAPP_SCHEME = "whatsapp:"
 WHATSAPP_LINK_MARKERS = ("wa.me/", "whatsapp.com/send")
 MIN_WHATSAPP_DIGITS = 8
 CONTACT_PAGE_KEYWORD = "contact"
+ABOUT_PAGE_KEYWORD = "about"
+HIDDEN_TEXT_TAGS = ("script", "style", "noscript", "svg", "template")
+WHITESPACE = re.compile(r"\s+")
+PAGE_SEPARATOR = " "
 
 
 MAX_PAGE_BYTES = 1_500_000
+PROBE_BLOCKED_STATUSES = (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN, HTTPStatus.TOO_MANY_REQUESTS)
+PROBE_ALIVE = "The website answers"
+PROBE_BLOCKS_BOTS = "The website answers but turns away automated visits"
+PROBE_NOT_A_URL = "Not a usable website address"
+PROBE_NOT_PUBLIC = "Skipped: not a public address"
+PROBE_NO_SUCH_HOST = "The website's domain could not be found"
+PROBE_BAD_REDIRECT = "The website redirects nowhere"
+PROBE_TIMED_OUT = "The website took too long to answer"
+PROBE_UNREACHABLE = "The website could not be reached"
+PROBE_HTTP_ERROR = "The website returned HTTP {status}"
+PROBE_TOO_MANY_REDIRECTS = "The website redirects in a loop"
 MAX_TEXT_CHARS = 300_000
 MAX_REDIRECTS = 3
 MAX_ITEMS = 5
@@ -60,11 +76,25 @@ class WebsiteContacts:
         return not (self.emails or self.phones or self.whatsapp or self.facebook or self.instagram)
 
 
+@dataclass
+class WebsiteText:
+    text: str = ""
+    pages_read: int = 0
+    truncated: bool = False
+    blocked_by_robots: bool = False
+
+
 def default_resolver(host: str) -> list[str]:
     try:
         return sorted({info[SOCKADDR_INDEX][ADDRESS_INDEX] for info in socket.getaddrinfo(host, None)})
     except socket.gaierror as exc:
         raise EnrichmentError(f"Could not resolve {host}") from exc
+
+
+@dataclass
+class SiteProbe:
+    is_alive: bool | None
+    note: str
 
 
 class WebsiteEnricher:
@@ -100,6 +130,61 @@ class WebsiteEnricher:
                 _merge(contacts, _extract(page_html, page_url))
         return contacts
 
+
+    def probe(self, url: str) -> SiteProbe:
+        site = normalize_website(url)
+        if not site.url:
+            return SiteProbe(False, PROBE_NOT_A_URL)
+        current = site.url
+        for _ in range(MAX_REDIRECTS + 1):
+            try:
+                self._assert_public(current)
+            except UnsafeUrlError:
+                return SiteProbe(None, PROBE_NOT_PUBLIC)
+            except EnrichmentError:
+                return SiteProbe(False, PROBE_NO_SUCH_HOST)
+            try:
+                with self._client.stream("GET", current, headers={"User-Agent": self._user_agent}) as response:
+                    status = response.status_code
+                    if response.is_redirect:
+                        location = response.headers.get("Location")
+                        if not location:
+                            return SiteProbe(False, PROBE_BAD_REDIRECT)
+                        current = urljoin(current, location)
+                        continue
+            except httpx.TimeoutException:
+                return SiteProbe(None, PROBE_TIMED_OUT)
+            except httpx.HTTPError:
+                return SiteProbe(False, PROBE_UNREACHABLE)
+            if status in PROBE_BLOCKED_STATUSES:
+                return SiteProbe(True, PROBE_BLOCKS_BOTS)
+            if status >= HTTPStatus.BAD_REQUEST:
+                return SiteProbe(False, PROBE_HTTP_ERROR.format(status=status))
+            return SiteProbe(True, PROBE_ALIVE)
+        return SiteProbe(False, PROBE_TOO_MANY_REDIRECTS)
+
+    def read_text(self, url: str, max_chars: int) -> WebsiteText:
+        site = normalize_website(url)
+        if not site.url:
+            raise EnrichmentError("Not a usable website URL")
+
+        robots = self._load_robots(site.url)
+        if not robots.can_fetch(self._user_agent, site.url):
+            return WebsiteText(blocked_by_robots=True)
+
+        html, final_url = self._fetch(site.url)
+        parts = [_visible_text(html)]
+        about_page = _find_linked_page(html, final_url, ABOUT_PAGE_KEYWORD)
+        if about_page and robots.can_fetch(self._user_agent, about_page):
+            try:
+                page_html, _ = self._fetch(about_page)
+            except EnrichmentError:
+                pass
+            else:
+                parts.append(_visible_text(page_html))
+
+        text = PAGE_SEPARATOR.join(part for part in parts if part)
+        return WebsiteText(text=text[:max_chars], pages_read=len(parts), truncated=len(text) > max_chars)
 
     def _assert_public(self, url: str) -> None:
         parsed = urlparse(url)
@@ -213,11 +298,22 @@ def _collect_social(contacts: WebsiteContacts, url: str) -> None:
         contacts.instagram = site.social_url
 
 
+def _visible_text(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(HIDDEN_TEXT_TAGS):
+        tag.decompose()
+    return WHITESPACE.sub(" ", soup.get_text(" ")).strip()
+
+
 def _find_contact_page(html: str, base_url: str) -> str | None:
+    return _find_linked_page(html, base_url, CONTACT_PAGE_KEYWORD)
+
+
+def _find_linked_page(html: str, base_url: str, keyword: str) -> str | None:
     base_host = urlparse(base_url).hostname
     for anchor in BeautifulSoup(html, "html.parser").find_all("a", href=True):
         label = f"{anchor.get_text(' ')} {anchor['href']}".lower()
-        if CONTACT_PAGE_KEYWORD not in label:
+        if keyword not in label:
             continue
         target = urljoin(base_url, anchor["href"])
         if urlparse(target).hostname == base_host and target.split("#")[0] != base_url:

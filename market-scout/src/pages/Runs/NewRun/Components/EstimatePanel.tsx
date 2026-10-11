@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, Play } from "lucide-react";
+import { AlertTriangle, CalendarClock, Loader2, Play } from "lucide-react";
 
 import type { TRunEstimate, TSourceEstimate } from "@/api/services/runs/runs.response.types";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ type TEstimatePanelProps = {
     canStart: boolean;
     isStarting: boolean;
     onStart: () => void;
+    isRepeating: boolean;
 };
 
 const EstimatePanel = ({
@@ -23,6 +24,7 @@ const EstimatePanel = ({
     canStart,
     isStarting,
     onStart,
+    isRepeating,
 }: TEstimatePanelProps) => {
     const renderWarning = (warning: string) => (
         <li
@@ -46,7 +48,7 @@ const EstimatePanel = ({
     return (
         <Card className="lg:sticky lg:top-20">
             <CardHeader>
-                <CardTitle>What this run will do</CardTitle>
+                <CardTitle>{isRepeating ? "What each run will do" : "What this run will do"}</CardTitle>
                 {isEstimating && hasSelection && (
                     <CardAction>
                         <Loader2 className="size-4 animate-spin text-muted-foreground" />
@@ -104,7 +106,7 @@ const EstimatePanel = ({
                             </ul>
                         )}
 
-                        {estimate.tasks_total > 0 && estimate.tasks_to_run === 0 && (
+                        {!isRepeating && estimate.tasks_total > 0 && estimate.tasks_to_run === 0 && (
                             <p className="text-sm text-muted-foreground">
                                 Everything here was searched recently. Turn on "Search again" to repeat it.
                             </p>
@@ -113,8 +115,8 @@ const EstimatePanel = ({
                 )}
 
                 <Button className="w-full" size="lg" disabled={!canStart || isStarting} onClick={onStart}>
-                    {isStarting ? <Loader2 className="animate-spin" /> : <Play />}
-                    Start run
+                    {isStarting ? <Loader2 className="animate-spin" /> : isRepeating ? <CalendarClock /> : <Play />}
+                    {isRepeating ? "Save repeating search" : "Start run"}
                 </Button>
             </CardContent>
         </Card>

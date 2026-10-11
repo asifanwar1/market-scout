@@ -12,7 +12,7 @@ PAID_REQUESTS_MAX = 100_000
 
 
 
-def _dedupe(values: list) -> list:
+def dedupe_values(values: list) -> list:
     return list(dict.fromkeys(values))
 
 
@@ -28,12 +28,12 @@ class RunCreate(BaseModel):
     @field_validator("geography_ids", "source_keys")
     @classmethod
     def dedupe_lists(cls, v: list) -> list:
-        return _dedupe(v)
+        return dedupe_values(v)
 
     @field_validator("segment_slugs")
     @classmethod
     def dedupe_optional_list(cls, v: Optional[list[str]]) -> Optional[list[str]]:
-        return _dedupe(v) if v is not None else v
+        return dedupe_values(v) if v is not None else v
 
 
 class SourceEstimate(BaseModel):
@@ -65,6 +65,8 @@ class RunResponse(BaseModel):
     profile_id: Optional[int] = None
     profile_name: str
     created_by_id: Optional[int] = None
+    schedule_id: Optional[int] = None
+    schedule_name: Optional[str] = None
     status: RunStatus
     source_keys: list[str]
     segment_slugs: Optional[list[str]] = None

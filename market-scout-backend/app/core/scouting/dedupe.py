@@ -9,6 +9,10 @@ EARTH_RADIUS_M = 6_371_000
 GEO_MATCH_RADIUS_M = 150
 GEO_NAME_SIMILARITY = 85
 PHONE_NAME_SIMILARITY = 40
+NEAR_RADIUS_M = 300
+NEAR_NAME_SIMILARITY = 60
+REASON_PHONE = "phone"
+REASON_LOCATION = "location"
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,25 @@ def is_same_business(a: BusinessKeys, b: BusinessKeys) -> MatchDecision:
             return MatchDecision(True, "location")
 
     return MatchDecision(False)
+
+
+@dataclass(frozen=True)
+class NearMiss:
+    reason: str
+    similarity: int
+
+
+def near_miss(a: BusinessKeys, b: BusinessKeys) -> NearMiss | None:
+    if a.phones & b.phones:
+        return NearMiss(REASON_PHONE, round(_name_similarity(a, b, fuzz.token_set_ratio)))
+
+    if None not in (a.latitude, a.longitude, b.latitude, b.longitude):
+        close = haversine_m(a.latitude, a.longitude, b.latitude, b.longitude) <= NEAR_RADIUS_M
+        similarity = _name_similarity(a, b, fuzz.token_sort_ratio)
+        if close and similarity >= NEAR_NAME_SIMILARITY:
+            return NearMiss(REASON_LOCATION, round(similarity))
+
+    return None
 
 
 def _name_similarity(a: BusinessKeys, b: BusinessKeys, scorer) -> float:

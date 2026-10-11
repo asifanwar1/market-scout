@@ -5,11 +5,16 @@ export enum APP_ROUTES {
     LEADS = "/leads",
     INSIGHTS = "/insights",
     TASKS = "/tasks",
+    ALERTS = "/alerts",
     DO_NOT_CONTACT = "/do-not-contact",
 
     RUNS = "/runs",
     RUNS_NEW = "/runs/new",
     RUNS_DETAILS = "/runs/:id",
+    SCHEDULES = "/schedules",
+    QUALITY = "/quality",
+    OUTREACH = "/outreach",
+    INTEGRATIONS = "/integrations",
 
     IMPORTS = "/imports",
     IMPORTS_NEW = "/imports/new",
@@ -20,6 +25,7 @@ export enum APP_ROUTES {
     PROFILES_DETAILS = "/profiles/:id",
     LOCATIONS = "/locations",
     SOURCES = "/sources",
+    AI = "/ai",
     SHEETS = "/sheets",
     USERS = "/users",
 }

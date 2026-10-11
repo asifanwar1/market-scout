@@ -5,9 +5,11 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EXPORT_BUTTON_LABEL, EXPORT_OPTIONS } from "../Leads.constants";
+import { CRM_EXPORT_HEADING, CRM_EXPORT_OPTIONS, EXPORT_BUTTON_LABEL, EXPORT_OPTIONS } from "../Leads.constants";
 import type { TLeadsPage } from "../Leads.Container";
 
 type TExportMenuProps = {
@@ -15,10 +17,16 @@ type TExportMenuProps = {
 };
 
 const ExportMenu = ({ page }: TExportMenuProps) => {
-    const { exportLeads, isExporting, isExportDisabled } = page;
+    const { exportLeads, exportCrm, isExporting, isExportDisabled } = page;
 
     const renderOption = (option: (typeof EXPORT_OPTIONS)[number]) => (
         <DropdownMenuItem key={option.format} onSelect={() => void exportLeads(option.format)}>
+            {option.label}
+        </DropdownMenuItem>
+    );
+
+    const renderCrmOption = (option: (typeof CRM_EXPORT_OPTIONS)[number]) => (
+        <DropdownMenuItem key={option.layout} onSelect={() => void exportCrm(option.layout)}>
             {option.label}
         </DropdownMenuItem>
     );
@@ -34,6 +42,9 @@ const ExportMenu = ({ page }: TExportMenuProps) => {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-40">
                 {EXPORT_OPTIONS.map(renderOption)}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>{CRM_EXPORT_HEADING}</DropdownMenuLabel>
+                {CRM_EXPORT_OPTIONS.map(renderCrmOption)}
             </DropdownMenuContent>
         </DropdownMenu>
     );

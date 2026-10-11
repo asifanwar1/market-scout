@@ -1,4 +1,5 @@
 import type { ColumnDef } from "@tanstack/react-table";
+import { CalendarClock } from "lucide-react";
 
 import type { TRun } from "@/api/services/runs/runs.response.types";
 import StatusBadge from "@/components/custom/StatusBadge";
@@ -22,6 +23,12 @@ export const runColumns: ColumnDef<TRun>[] = [
             <div className="min-w-0">
                 <p className="font-medium">Run #{row.original.id}</p>
                 <p className="truncate text-xs text-muted-foreground">{row.original.profile_name}</p>
+                {row.original.schedule_name && (
+                    <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                        <CalendarClock className="size-3 shrink-0" />
+                        {row.original.schedule_name}
+                    </p>
+                )}
             </div>
         ),
     },

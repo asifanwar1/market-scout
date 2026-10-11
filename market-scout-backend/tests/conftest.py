@@ -14,6 +14,8 @@ os.environ["RUN_WORKER_ENABLED"] = "false"
 for name, value in {
     "GOOGLE_PLACES_API_KEY": "",
     "DEAL_CURRENCY": "USD",
+    "ANTHROPIC_API_KEY": "",
+    "AI_MONTHLY_BUDGET_USD": "5",
     "HERE_API_KEY": "",
     "TOMTOM_API_KEY": "",
     "HERE_COST_PER_REQUEST_USD": "0",

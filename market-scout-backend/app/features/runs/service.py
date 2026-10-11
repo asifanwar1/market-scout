@@ -10,24 +10,29 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.constants import FIRST_PAGE, PRICE_DIGITS, SECONDS_PER_MINUTE
-from app.core.database import WorkerSessionLocal, WriteSessionLocal
+from app.core.database import WorkerSessionLocal
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.core.scouting.enrichment.website import EnrichmentError, WebsiteContacts, WebsiteEnricher
 from app.core.scouting.sources.base import KIND_DISCOVERY, Source, SourceAuthError, SourceError
 from app.core.scouting.sources.registry import CATALOG, ENRICHMENT_KEY, get_source_info
 from app.core.scouting.types import RawBusiness, SearchArea, SearchQuery
+from app.features.alerts import service as alerts_service
 from app.features.businesses import ingest as businesses_ingest
 from app.features.businesses.ingest import IngestContext, ProfileScoring
 from app.features.businesses.models import Business, SourceRecord
 from app.features.geographies.models import Geography, GeographyLevel
+from app.features.jobs import service as jobs_service
+from app.features.jobs.handler import JobHandler
+from app.features.jobs.models import JobKind
 from app.features.profiles.models import Profile, ProfileSearchTerm
+from app.features.quality import service as quality_service
 from app.features.runs.models import Run, RunStatus, RunTask, TaskStatus
 from app.features.runs.schemas import RunCreate
-from app.features.runs.worker import worker
 from app.features.sheets import service as sheets_service
 from app.features.sources import service as sources_service
 
 TASK_ERROR_MAX_LENGTH = 500
+INTERRUPTED_MESSAGE = "Interrupted by a server restart; resume it to continue"
 
 
 DEFAULT_LIMIT = 10
@@ -250,16 +255,25 @@ def estimate_run(db: Session, run_in: RunCreate) -> dict:
     }
 
 
-def create_run(db: Session, run_in: RunCreate, created_by_id: int) -> Run:
+def check_plan(db: Session, run_in: RunCreate) -> tuple[Profile, list[Geography], list[TaskPlan]]:
     profile, cities, plans = _plan(db, run_in)
     if len(plans) > settings.RUN_MAX_TASKS:
         raise BadRequestException(_too_many_searches_message(len(plans)))
+    return profile, cities, plans
+
+
+def create_run(
+    db: Session, run_in: RunCreate, created_by_id: int | None, schedule_id: int | None = None, schedule_name: str | None = None
+) -> Run:
+    profile, cities, plans = check_plan(db, run_in)
 
     searched = set() if run_in.refresh else _recently_searched(db, plans)
     run = Run(
         profile_id=profile.id,
         profile_name=profile.name,
         created_by_id=created_by_id,
+        schedule_id=schedule_id,
+        schedule_name=schedule_name,
         status=RunStatus.QUEUED.value,
         source_keys=run_in.source_keys,
         segment_slugs=run_in.segment_slugs,
@@ -290,9 +304,9 @@ def create_run(db: Session, run_in: RunCreate, created_by_id: int) -> Run:
                 error="Searched recently; skipped" if already_done else None,
             )
         )
+    jobs_service.enqueue(db, JobKind.RUN, run.id)
     db.commit()
     db.refresh(run)
-    worker.enqueue(run.id)
     return run
 
 
@@ -355,14 +369,21 @@ def resume_run(db: Session, run_id: int) -> Run:
     run.status = RunStatus.QUEUED.value
     run.error = None
     run.finished_at = None
+    jobs_service.enqueue(db, JobKind.RUN, run.id)
     db.commit()
     db.refresh(run)
-    worker.enqueue(run.id)
     return run
 
 
 def _empty_stats(fields: tuple[str, ...]) -> dict[str, int]:
     return {field: 0 for field in fields}
+
+
+def _starting_stats(run: Run) -> dict[str, dict[str, int]]:
+    stats = {key: _empty_stats(_SEARCH_STAT_FIELDS) for key in run.source_keys}
+    for key, values in (run.stats or {}).items():
+        stats.setdefault(key, {}).update(values)
+    return stats
 
 
 def _snapshot(stats: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
@@ -401,7 +422,7 @@ def execute_run(
     except ValueError as exc:
         return _finish(db, run, RunStatus.FAILED, str(exc))
 
-    stats: dict[str, dict[str, int]] = {key: _empty_stats(_SEARCH_STAT_FIELDS) for key in run.source_keys}
+    stats = _starting_stats(run)
     _run_search_tasks(db, run, scoring, sources, stats)
 
     if (
@@ -563,7 +584,7 @@ def _enrich_websites(
         )
         .all()
     )
-    run.enrich_total = len(targets)
+    run.enrich_total = run.enrich_done + len(targets)
     db.commit()
     if not targets:
         return
@@ -650,31 +671,59 @@ def run_in_new_session(run_id: int) -> None:
         if run is not None and run.is_active:
             _finish(db, run, RunStatus.FAILED, "Unexpected error (see the server log)")
     finally:
+        alerts_service.raise_alerts(db, run_id)
+        quality_service.queue_checks_after_run(db, run_id)
         db.close()
         sheets_service.notify_changed()
 
 
-def recover_interrupted_runs(db: Session) -> list[int]:
-    interrupted = db.query(Run).filter(Run.status.in_([RunStatus.RUNNING.value, RunStatus.CANCELLING.value])).all()
-    for run in interrupted:
-        db.query(RunTask).filter(RunTask.run_id == run.id, RunTask.status == TaskStatus.RUNNING.value).update(
-            {"status": TaskStatus.PENDING.value}, synchronize_session=False
+def recover_run(db: Session, run_id: int, retries_left: bool) -> bool:
+    run = db.get(Run, run_id, populate_existing=True)
+    if run is None or run.status not in (RunStatus.RUNNING.value, RunStatus.CANCELLING.value):
+        return False
+
+    pending = db.query(RunTask).filter(RunTask.run_id == run.id, RunTask.status == TaskStatus.RUNNING.value)
+    if run.status == RunStatus.CANCELLING.value:
+        pending.update({"status": TaskStatus.PENDING.value}, synchronize_session=False)
+        leftover = db.query(RunTask).filter(RunTask.run_id == run.id, RunTask.status == TaskStatus.PENDING.value)
+        run.tasks_skipped += leftover.update(
+            {"status": TaskStatus.SKIPPED.value, "error": "Run cancelled"}, synchronize_session=False
         )
+        run.status = RunStatus.CANCELLED.value
+        run.finished_at = _now()
+        db.commit()
+        return False
+
+    pending.update({"status": TaskStatus.PENDING.value}, synchronize_session=False)
+    if retries_left:
+        run.status = RunStatus.QUEUED.value
+        run.error = None
+        run.finished_at = None
+    else:
         run.status = RunStatus.FAILED.value
-        run.error = "Interrupted by a server restart; resume it to continue"
+        run.error = INTERRUPTED_MESSAGE
         run.finished_at = _now()
     db.commit()
+    return retries_left
+
+
+def _queued_run_ids(db: Session) -> list[int]:
     return [row[0] for row in db.query(Run.id).filter(Run.status == RunStatus.QUEUED.value).order_by(Run.id)]
 
 
-def start_worker() -> None:
-    db = WriteSessionLocal()
+def _running_run_ids(db: Session) -> list[int]:
+    statuses = [RunStatus.RUNNING.value, RunStatus.CANCELLING.value]
+    return [row[0] for row in db.query(Run.id).filter(Run.status.in_(statuses)).order_by(Run.id)]
+
+
+JOB_HANDLER = JobHandler(
+    execute=run_in_new_session, recover=recover_run, queued_ids=_queued_run_ids, running_ids=_running_run_ids
+)
+
+
+def prepare_sources() -> None:
+    db = WorkerSessionLocal()
     try:
-        queued = recover_interrupted_runs(db)
         sources_service.ensure_sources(db)
     finally:
         db.close()
-
-    worker.start(run_in_new_session)
-    for run_id in queued:
-        worker.enqueue(run_id)

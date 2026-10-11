@@ -17,7 +17,7 @@ import EstimatePanel from "./Components/EstimatePanel";
 import LocationPicker from "./Components/LocationPicker";
 import SegmentOption from "./Components/SegmentOption";
 import SourceOption from "./Components/SourceOption";
-import { NEW_RUN_DESCRIPTION, NO_PROFILE_MESSAGE } from "./NewRun.constants";
+import { NO_PROFILE_MESSAGE, PAID_CAP_REQUIRED_MESSAGE, REPEAT_HINT, SCHEDULE_NAME_MAX_LENGTH } from "./NewRun.constants";
 import { useNewRun } from "./NewRun.Container";
 
 const NewRun = () => {
@@ -46,6 +46,18 @@ const NewRun = () => {
         onMaxPaidChange,
         isEnrichmentOn,
         confirmDescription,
+        confirmTitle,
+        confirmLabel,
+        pageTitle,
+        pageDescription,
+        isRepeating,
+        setIsRepeating,
+        frequency,
+        frequencyOptions,
+        onFrequencyChange,
+        scheduleName,
+        onScheduleNameChange,
+        needsPaidCap,
         estimate,
         isEstimating,
         estimateError,
@@ -68,6 +80,12 @@ const NewRun = () => {
         <SegmentOption key={segment.id} segment={segment} isChecked={segmentSlugs.includes(segment.slug)} onToggle={toggleSegment} />
     );
 
+    const renderFrequency = (option: (typeof frequencyOptions)[number]) => (
+        <SelectItem key={option.value} value={option.value}>
+            {option.label}
+        </SelectItem>
+    );
+
     const renderSource = (source: TSource) => (
         <SourceOption key={source.key} source={source} isChecked={sourceKeys.includes(source.key)} onToggle={toggleSource} />
     );
@@ -77,7 +95,7 @@ const NewRun = () => {
     if (hasNoProfiles) {
         return (
             <div className="space-y-4">
-                <PageHeader title="New run" />
+                <PageHeader title={pageTitle} />
                 <p className="text-sm text-muted-foreground">{NO_PROFILE_MESSAGE}</p>
             </div>
         );
@@ -92,7 +110,7 @@ const NewRun = () => {
                 </Link>
             </Button>
 
-            <PageHeader title="New run" description={NEW_RUN_DESCRIPTION} />
+            <PageHeader title={pageTitle} description={pageDescription} />
 
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="space-y-6">
@@ -158,6 +176,11 @@ const NewRun = () => {
                                     <p className="text-xs text-muted-foreground">
                                         The run stops asking the paid source once it has made this many requests.
                                     </p>
+                                    {needsPaidCap && (
+                                        <p role="alert" className="text-xs text-destructive">
+                                            {PAID_CAP_REQUIRED_MESSAGE}
+                                        </p>
+                                    )}
                                 </div>
                             )}
 
@@ -173,15 +196,56 @@ const NewRun = () => {
                                 <Switch id="run-enrich" checked={isEnrichmentOn} disabled={!enrichmentAvailable} onCheckedChange={setEnrichWebsites} />
                             </div>
 
+                            {!isRepeating && (
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <Label htmlFor="run-refresh">Search again</Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            Repeat searches that already finished in the last few days instead of skipping them.
+                                        </p>
+                                    </div>
+                                    <Switch id="run-refresh" checked={refresh} onCheckedChange={setRefresh} />
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Repeat</CardTitle>
+                            <CardDescription>Run this search again by itself, and add only what is new.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-5">
                             <div className="flex items-start justify-between gap-4">
                                 <div>
-                                    <Label htmlFor="run-refresh">Search again</Label>
-                                    <p className="text-xs text-muted-foreground">
-                                        Repeat searches that already finished in the last few days instead of skipping them.
-                                    </p>
+                                    <Label htmlFor="run-repeat">Repeat this search</Label>
+                                    <p className="text-xs text-muted-foreground">{REPEAT_HINT}</p>
                                 </div>
-                                <Switch id="run-refresh" checked={refresh} onCheckedChange={setRefresh} />
+                                <Switch id="run-repeat" checked={isRepeating} onCheckedChange={setIsRepeating} />
                             </div>
+
+                            {isRepeating && (
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="run-frequency">How often</Label>
+                                        <Select value={frequency} onValueChange={onFrequencyChange}>
+                                            <SelectTrigger id="run-frequency" className="w-full">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>{frequencyOptions.map(renderFrequency)}</SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="run-schedule-name">Name</Label>
+                                        <Input
+                                            id="run-schedule-name"
+                                            value={scheduleName}
+                                            maxLength={SCHEDULE_NAME_MAX_LENGTH}
+                                            onChange={onScheduleNameChange}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 </div>
@@ -194,14 +258,15 @@ const NewRun = () => {
                     canStart={canStart}
                     isStarting={isStarting}
                     onStart={requestStart}
+                    isRepeating={isRepeating}
                 />
             </div>
 
             <ConfirmationModal
                 open={showConfirm}
-                title="Start a run that costs money?"
+                title={confirmTitle}
                 description={confirmDescription}
-                confirmText="Start run"
+                confirmText={confirmLabel}
                 isLoading={isStarting}
                 onConfirm={confirmStart}
                 onClose={closeConfirm}

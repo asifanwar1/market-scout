@@ -8,6 +8,8 @@ export type TRun = {
     profile_id: number | null;
     profile_name: string;
     created_by_id: number | null;
+    schedule_id: number | null;
+    schedule_name: string | null;
     status: RunStatus;
     source_keys: string[];
     segment_slugs: string[] | null;

@@ -43,6 +43,17 @@ export const formatRelative = (value: string | null | undefined): string => {
     return `${formatDistanceToNowStrict(parseServerDate(value))} ago`;
 };
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export const isWithinDays = (value: string | null | undefined, days: number): boolean =>
+    !!value && Date.now() - parseServerDate(value).getTime() < days * MS_PER_DAY;
+
+export const formatUpcoming = (value: string | null | undefined): string => {
+    if (!value) return "—";
+    const date = parseServerDate(value);
+    return date.getTime() <= Date.now() ? "any moment now" : `in ${formatDistanceToNowStrict(date)}`;
+};
+
 export const formatCount = (value: number): string =>
     new Intl.NumberFormat("en-US").format(value);
 

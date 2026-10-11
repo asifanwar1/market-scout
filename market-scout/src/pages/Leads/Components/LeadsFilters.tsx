@@ -19,7 +19,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { ALL_OPTION_VALUE, LEAD_STATUS_OPTIONS } from "@/constants";
+import { ALL_OPTION_VALUE, LEAD_STATUS_OPTIONS, MIN_AI_FITS } from "@/constants";
 import { getSourceLabel } from "@/utils/format.utils";
 import { useStore } from "@/store";
 import type { TSegment } from "@/api/services/profiles/profiles.response.types";
@@ -53,11 +53,17 @@ const LeadsFilters = ({ page }: TLeadsFiltersProps) => {
         state.email,
         state.website,
         state.minScore,
+        state.minFit,
     ].filter(Boolean).length;
 
     const provinces = geographyTree.flatMap((country) => country.children);
 
     const renderMinScoreOption = (option: (typeof MIN_SCORES)[number]) => (
+        <SelectItem key={option.value} value={option.value}>
+            {option.label}
+        </SelectItem>
+    );
+    const renderMinFitOption = (option: (typeof MIN_AI_FITS)[number]) => (
         <SelectItem key={option.value} value={option.value}>
             {option.label}
         </SelectItem>
@@ -257,6 +263,23 @@ const LeadsFilters = ({ page }: TLeadsFiltersProps) => {
                                 <SelectContent>
                                     <SelectItem value={ALL_OPTION_VALUE}>Any score</SelectItem>
                                     {MIN_SCORES.map(renderMinScoreOption)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>AI fit</Label>
+                            <Select
+                                value={state.minFit ? String(state.minFit) : ALL_OPTION_VALUE}
+                                onValueChange={(value) =>
+                                    changeFilters({ minFit: value === ALL_OPTION_VALUE ? null : Number(value) })
+                                }
+                            >
+                                <SelectTrigger className="w-full" aria-label="Minimum AI fit">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={ALL_OPTION_VALUE}>Any fit</SelectItem>
+                                    {MIN_AI_FITS.map(renderMinFitOption)}
                                 </SelectContent>
                             </Select>
                         </div>

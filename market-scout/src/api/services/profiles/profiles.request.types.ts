@@ -32,6 +32,7 @@ export type TSearchTermInput = {
 export type TProfileBody = {
     name: string;
     description?: string | null;
+    ideal_customer?: string | null;
     is_active: boolean;
     scoring_config: TScoringConfig;
     segments: TSegmentInput[];

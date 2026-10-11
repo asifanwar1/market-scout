@@ -16,6 +16,11 @@ const DoNotContact = lazy(() => import("@/pages/DoNotContact"));
 const Runs = lazy(() => import("@/pages/Runs"));
 const NewRun = lazy(() => import("@/pages/Runs/NewRun"));
 const RunDetails = lazy(() => import("@/pages/Runs/RunDetails"));
+const Alerts = lazy(() => import("@/pages/Alerts"));
+const Outreach = lazy(() => import("@/pages/Outreach"));
+const Integrations = lazy(() => import("@/pages/Integrations"));
+const Quality = lazy(() => import("@/pages/Quality"));
+const Schedules = lazy(() => import("@/pages/Schedules"));
 const Imports = lazy(() => import("@/pages/Imports"));
 const NewImport = lazy(() => import("@/pages/Imports/NewImport"));
 const ImportDetails = lazy(() => import("@/pages/Imports/ImportDetails"));
@@ -23,6 +28,7 @@ const Profiles = lazy(() => import("@/pages/Profiles"));
 const ProfileEditor = lazy(() => import("@/pages/Profiles/ProfileEditor"));
 const Locations = lazy(() => import("@/pages/Locations"));
 const Sources = lazy(() => import("@/pages/Sources"));
+const Ai = lazy(() => import("@/pages/Ai"));
 const Sheets = lazy(() => import("@/pages/Sheets"));
 const Users = lazy(() => import("@/pages/Users"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
@@ -44,6 +50,8 @@ export const routes: RouteObject[] = [
             { path: APP_ROUTES.LEADS, element: <Leads /> },
             { path: APP_ROUTES.INSIGHTS, element: <Insights /> },
             { path: APP_ROUTES.TASKS, element: <Tasks /> },
+            { path: APP_ROUTES.ALERTS, element: <Alerts /> },
+            { path: APP_ROUTES.OUTREACH, element: <Outreach /> },
             { path: APP_ROUTES.DO_NOT_CONTACT, element: <DoNotContact /> },
             {
                 element: <RequireRole roles={[USER_ROLE.ADMIN]} />,
@@ -51,6 +59,9 @@ export const routes: RouteObject[] = [
                     { path: APP_ROUTES.RUNS, element: <Runs /> },
                     { path: APP_ROUTES.RUNS_NEW, element: <NewRun /> },
                     { path: APP_ROUTES.RUNS_DETAILS, element: <RunDetails /> },
+                    { path: APP_ROUTES.SCHEDULES, element: <Schedules /> },
+                    { path: APP_ROUTES.QUALITY, element: <Quality /> },
+                    { path: APP_ROUTES.INTEGRATIONS, element: <Integrations /> },
                     { path: APP_ROUTES.IMPORTS, element: <Imports /> },
                     { path: APP_ROUTES.IMPORTS_NEW, element: <NewImport /> },
                     { path: APP_ROUTES.IMPORTS_DETAILS, element: <ImportDetails /> },
@@ -59,6 +70,7 @@ export const routes: RouteObject[] = [
                     { path: APP_ROUTES.PROFILES_DETAILS, element: <ProfileEditor /> },
                     { path: APP_ROUTES.LOCATIONS, element: <Locations /> },
                     { path: APP_ROUTES.SOURCES, element: <Sources /> },
+                    { path: APP_ROUTES.AI, element: <Ai /> },
                     { path: APP_ROUTES.SHEETS, element: <Sheets /> },
                     { path: APP_ROUTES.USERS, element: <Users /> },
                 ],

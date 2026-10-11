@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { TProfileFormValues } from "../profileForm";
-import { DESCRIPTION_MAX_LENGTH } from "@/constants/limits.constants";
+import { DESCRIPTION_MAX_LENGTH, IDEAL_CUSTOMER_MAX_LENGTH } from "@/constants/limits.constants";
 
 const BasicsSection = () => {
     "use no memo";
@@ -41,6 +41,22 @@ const BasicsSection = () => {
                         placeholder="Who you're looking for, in a sentence"
                         {...register("description")}
                     />
+                </div>
+
+                <div className="space-y-1.5">
+                    <Label htmlFor="profile-ideal-customer">Your ideal customer</Label>
+                    <Textarea
+                        id="profile-ideal-customer"
+                        rows={4}
+                        maxLength={IDEAL_CUSTOMER_MAX_LENGTH}
+                        aria-invalid={!!errors.idealCustomer}
+                        placeholder="Who is a good customer for what you sell here? e.g. HVAC contractors with 5-50 staff who still schedule jobs on paper or WhatsApp"
+                        {...register("idealCustomer")}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        The AI assistant scores each lead against this. The clearer it is, the better the scores.
+                    </p>
+                    {errors.idealCustomer && <p className="text-sm text-destructive">{errors.idealCustomer.message}</p>}
                 </div>
 
                 <div className="flex items-center justify-between gap-4 rounded-lg border p-3">

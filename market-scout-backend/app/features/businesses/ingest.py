@@ -4,10 +4,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.scouting.classify import LeadSignals, SegmentRule, classify, score_lead
-from app.core.scouting.dedupe import BusinessKeys, is_same_business
+from app.core.scouting.dedupe import BusinessKeys, NearMiss, is_same_business, near_miss
 from app.core.scouting.normalize import (
     PhoneInfo,
     extract_phones_from_many,
@@ -19,12 +20,18 @@ from app.core.scouting.types import RawBusiness
 from app.features.businesses.models import (
     Business,
     BusinessClassification,
+    CheckStatus,
     ContactKind,
     ContactPoint,
     SourceRecord,
+    WebsiteStatus,
 )
 from app.features.compliance import service as compliance_service
 from app.features.insights.models import BusinessSnapshot
+from app.features.quality.models import DuplicateCandidate, DuplicateConfidence
+from app.features.webhooks import events as webhook_events
+from app.features.webhooks import service as webhooks_service
+from app.features.webhooks.models import WebhookEvent
 
 _GEO_PREFILTER_DEGREES = 0.003
 _PHONE_KINDS = (ContactKind.PHONE.value, ContactKind.WHATSAPP.value)
@@ -120,7 +127,11 @@ def ingest_business(db: Session, raw: RawBusiness, ctx: IngestContext) -> Ingest
         .filter(SourceRecord.source_key == raw.source_key, SourceRecord.external_id == raw.external_id)
         .first()
     )
-    business = record.business if record else _find_match(db, keys)
+    near_misses: list[tuple[int, NearMiss]] = []
+    if record:
+        business = record.business
+    else:
+        business, near_misses = _find_match(db, keys)
 
     blocked = business is not None and compliance_service.is_business_blocked(db, business.id)
     if blocked or compliance_service.identifiers_blocked(db, all_phones, emails):
@@ -139,12 +150,18 @@ def ingest_business(db: Session, raw: RawBusiness, ctx: IngestContext) -> Ingest
         db.add(business)
         db.flush()
 
+    if created:
+        record_near_misses(db, business.id, near_misses)
     _merge_fields(business, raw, site.url, site.domain, ctx)
     _record_snapshot(db, business, ctx)
     _store_source_record(db, business, record, raw, ctx)
     _add_contact_points(db, business, raw.source_key, phones, emails, site.social_platform, site.social_url)
     db.flush()
     classify_business(db, business, ctx.profile, ctx.hint_segment_slug)
+    if created:
+        webhooks_service.emit(
+            db, WebhookEvent.LEAD_CREATED, lambda: {"lead": webhook_events.lead_snapshot(db, business)}
+        )
 
     return IngestOutcome(
         business=business,
@@ -206,7 +223,24 @@ def rescore_business(db: Session, business: Business, profile: ProfileScoring) -
     classify_business(db, business, profile, hint)
 
 
-def _find_match(db: Session, keys: BusinessKeys) -> Business | None:
+def record_near_misses(db: Session, business_id: int, near_misses: list[tuple[int, NearMiss]]) -> None:
+    for other_id, miss in near_misses:
+        first, second = sorted((business_id, other_id))
+        exists = (
+            db.query(DuplicateCandidate.id)
+            .filter(DuplicateCandidate.business_a_id == first, DuplicateCandidate.business_b_id == second)
+            .first()
+        )
+        if exists is None:
+            db.add(
+                DuplicateCandidate(
+                    business_a_id=first, business_b_id=second, reason=miss.reason, similarity=miss.similarity,
+                    confidence=DuplicateConfidence.POSSIBLE.value,
+                )
+            )
+
+
+def _find_match(db: Session, keys: BusinessKeys) -> tuple[Business | None, list[tuple[int, NearMiss]]]:
     candidate_ids: set[int] = set()
 
     if keys.phones:
@@ -227,7 +261,7 @@ def _find_match(db: Session, keys: BusinessKeys) -> Business | None:
         candidate_ids.update(row[0] for row in rows)
 
     if not candidate_ids:
-        return None
+        return None, []
 
     phones_by_business: dict[int, set[str]] = defaultdict(set)
     for business_id, value in (
@@ -237,20 +271,26 @@ def _find_match(db: Session, keys: BusinessKeys) -> Business | None:
         phones_by_business[business_id].add(value)
 
     best: tuple[Business, str] | None = None
+    near_misses: list[tuple[int, NearMiss]] = []
     for candidate in db.query(Business).filter(Business.id.in_(candidate_ids)).all():
-        decision = is_same_business(
-            keys,
-            BusinessKeys(
-                candidate.normalized_name,
-                frozenset(phones_by_business[candidate.id]),
-                candidate.website_domain,
-                candidate.latitude,
-                candidate.longitude,
-            ),
+        other = BusinessKeys(
+            candidate.normalized_name,
+            frozenset(phones_by_business[candidate.id]),
+            candidate.website_domain,
+            candidate.latitude,
+            candidate.longitude,
         )
-        if decision.is_match and (best is None or _MATCH_PRIORITY[decision.reason] < _MATCH_PRIORITY[best[1]]):
-            best = (candidate, decision.reason)
-    return best[0] if best else None
+        decision = is_same_business(keys, other)
+        if decision.is_match:
+            if best is None or _MATCH_PRIORITY[decision.reason] < _MATCH_PRIORITY[best[1]]:
+                best = (candidate, decision.reason)
+            continue
+        miss = near_miss(keys, other)
+        if miss is not None:
+            near_misses.append((candidate.id, miss))
+    if best:
+        return best[0], []
+    return None, near_misses
 
 
 def _merge_fields(business: Business, raw: RawBusiness, website_url: str | None, domain: str | None, ctx: IngestContext) -> None:
@@ -351,11 +391,18 @@ def _add_contact_points(
 
 
 def _contact_signals(db: Session, business: Business) -> LeadSignals:
-    rows = db.query(ContactPoint.kind, ContactPoint.whatsapp_likely).filter(ContactPoint.business_id == business.id).all()
+    rows = (
+        db.query(ContactPoint.kind, ContactPoint.whatsapp_likely)
+        .filter(
+            ContactPoint.business_id == business.id,
+            or_(ContactPoint.check_status.is_(None), ContactPoint.check_status != CheckStatus.BAD.value),
+        )
+        .all()
+    )
     return LeadSignals(
         has_phone=any(kind in _PHONE_KINDS for kind, _ in rows),
         has_whatsapp_likely=any(likely or kind == ContactKind.WHATSAPP.value for kind, likely in rows),
-        has_website=bool(business.website),
+        has_website=bool(business.website) and business.website_status != WebsiteStatus.DEAD.value,
         has_email=any(kind == ContactKind.EMAIL.value for kind, _ in rows),
         review_count=business.review_count,
     )

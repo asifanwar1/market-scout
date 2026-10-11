@@ -11,6 +11,7 @@ from app.features.businesses.models import Business, BusinessClassification, Con
 from app.features.geographies.models import Geography
 from app.features.imports import service
 from app.features.imports.models import Import, ImportStatus
+from app.features.jobs.models import Job
 from app.features.profiles.models import ProfileSegment
 
 BASE = "/api/v1/imports"
@@ -320,22 +321,51 @@ def test_a_finished_import_cannot_be_cancelled(client, admin, options, db_sessio
     assert client.post(f"{BASE}/{record.id}/cancel", headers=admin).status_code == 400
 
 
-def test_after_a_restart_a_half_done_import_is_marked_failed_and_a_waiting_one_is_queued_again(db_session, seeded_profile):
-    def make(status):
-        record = Import(label="x", filename="x.csv", profile_id=seeded_profile.id, profile_name="p", status=status,
-                        mapping={}, rows_total=1, rows_to_import=1)
-        db_session.add(record)
-        db_session.commit()
-        return record
+def test_an_interrupted_import_picks_up_after_the_rows_already_stored(client, admin, options, db_session):
+    created = upload(client, admin, options()).json()
+    record = db_session.get(Import, created["id"])
+    record.status, record.rows_done = ImportStatus.RUNNING.value, 1
+    db_session.commit()
 
-    running, waiting = make(ImportStatus.RUNNING.value), make(ImportStatus.QUEUED.value)
-    make(ImportStatus.COMPLETED.value)
+    assert service.recover_import(db_session, record.id, True) is True
+    assert db_session.get(Import, record.id).status == "queued"
 
-    to_requeue = service.recover_interrupted_imports(db_session)
+    service.execute_import(db_session, record.id)
 
-    assert to_requeue == [waiting.id]
-    db_session.refresh(running)
-    assert running.status == "failed" and "Import the file again" in running.error
+    finished = db_session.get(Import, record.id)
+    assert finished.status == "completed" and finished.rows_done == finished.rows_to_import
+    assert db_session.query(Business).count() == finished.rows_to_import - 1
+
+
+def test_an_interrupted_import_out_of_tries_is_marked_failed_and_its_rows_removed(client, admin, options, db_session):
+    created = upload(client, admin, options()).json()
+    record = db_session.get(Import, created["id"])
+    record.status = ImportStatus.RUNNING.value
+    db_session.commit()
+
+    assert service.recover_import(db_session, record.id, False) is False
+
+    db_session.refresh(record)
+    assert record.status == "failed" and "Import the file again" in record.error
+    assert not (Path(settings.IMPORTS_DIR) / f"{record.id}.jsonl").exists()
+
+
+def test_an_import_being_cancelled_when_interrupted_ends_cancelled(client, admin, options, db_session):
+    created = upload(client, admin, options()).json()
+    record = db_session.get(Import, created["id"])
+    record.status = ImportStatus.CANCELLING.value
+    db_session.commit()
+
+    assert service.recover_import(db_session, record.id, True) is False
+
+    db_session.refresh(record)
+    assert record.status == "cancelled"
+
+
+def test_uploading_queues_a_job_with_the_import(client, admin, options, db_session):
+    created = upload(client, admin, options()).json()
+
+    assert db_session.query(Job).filter_by(kind="import", ref_id=created["id"], status="queued").count() == 1
 
 
 def test_an_import_whose_rows_went_missing_fails_with_a_clear_message(client, admin, options, db_session):

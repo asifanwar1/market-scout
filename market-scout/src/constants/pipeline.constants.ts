@@ -51,6 +51,8 @@ export const ACTIVITY_KIND = {
     ASSIGNMENT: "assignment",
     TASK_COMPLETED: "task_completed",
     OUTCOME_UPDATED: "outcome_updated",
+    SEGMENT_CHANGED: "segment_changed",
+    MERGED: "merged",
 } as const;
 
 export type ActivityKind = (typeof ACTIVITY_KIND)[keyof typeof ACTIVITY_KIND];

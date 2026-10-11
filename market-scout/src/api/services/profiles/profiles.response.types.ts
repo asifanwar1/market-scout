@@ -50,6 +50,7 @@ export type TSearchTerm = {
 };
 
 export type TProfileDetail = TProfileListItem & {
+    ideal_customer: string | null;
     scoring_config: TScoringConfig;
     segments: TSegment[];
     search_terms: TSearchTerm[];

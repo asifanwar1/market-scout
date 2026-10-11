@@ -1,7 +1,7 @@
 import type { TOutcomeInput } from "@/api/services/pipeline/pipeline.request.types";
 import type { LeadStatus } from "@/constants/lead-status.constants";
 
-export type TBusinessSort = "score" | "newest" | "last_seen" | "name";
+export type TBusinessSort = "score" | "ai_fit" | "newest" | "last_seen" | "name";
 export type TSortDirection = "asc" | "desc";
 
 export type TBusinessFilters = {
@@ -17,6 +17,7 @@ export type TBusinessFilters = {
     unassigned?: boolean;
     source?: string;
     min_score?: number;
+    min_ai_fit?: number;
     search?: string;
 };
 
@@ -30,6 +31,7 @@ export type TGetBusinessesParams = TBusinessFilters & {
 export type TUpdateBusinessBody = {
     lead_status?: LeadStatus;
     notes?: string | null;
+    contact_name?: string | null;
     assigned_to_id?: number | null;
     outcome?: TOutcomeInput;
 };

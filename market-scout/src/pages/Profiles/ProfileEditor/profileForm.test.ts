@@ -14,6 +14,7 @@ const detail: TProfileDetail = {
     name: "Solar",
     slug: "solar",
     description: null,
+    ideal_customer: null,
     is_active: true,
     segment_count: 2,
     term_count: 2,
@@ -59,6 +60,15 @@ describe("toFormValues / toRequestBody", () => {
         expect(body.search_terms[1].osm_filter).toBeNull();
     });
 
+    it("carries the ideal customer text both ways, trimmed, and clears it when blank", () => {
+        const withText = toFormValues({ ...detail, ideal_customer: "Small HVAC shops" });
+
+        expect(withText.idealCustomer).toBe("Small HVAC shops");
+        expect(toFormValues(detail).idealCustomer).toBe("");
+        expect(toRequestBody({ ...withText, idealCustomer: "  Small HVAC shops  " }).ideal_customer).toBe("Small HVAC shops");
+        expect(toRequestBody({ ...withText, idealCustomer: "   " }).ideal_customer).toBeNull();
+    });
+
     it("gives a new segment a slug from its name, and points its terms at it", () => {
         const values = valid({
             segments: [{ key: "k1", slug: "", name: "Wholesale & Distribution", description: "", patterns: "" }],
@@ -79,6 +89,11 @@ describe("toFormValues / toRequestBody", () => {
 });
 
 describe("profileSchema", () => {
+    it("allows an ideal customer text up to the limit and not beyond", () => {
+        expect(issues(valid({ idealCustomer: "x".repeat(2000) }))).toEqual([]);
+        expect(issues(valid({ idealCustomer: "x".repeat(2001) }))).toEqual(["idealCustomer: At most 2000 characters"]);
+    });
+
     it("accepts a complete profile and an empty new one with a name", () => {
         expect(issues(valid())).toEqual([]);
         expect(issues({ ...emptyProfile(), name: "Water pumps" })).toEqual([]);
