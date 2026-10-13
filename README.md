@@ -1,5 +1,11 @@
 # Market Scout
 
+Open-source lead generation and market intelligence for sales teams.
+
+[![Watch the Market Scout overview on YouTube](https://img.youtube.com/vi/T9x2bFZeyuE/maxresdefault.jpg)](https://youtu.be/T9x2bFZeyuE)
+
+[Watch the full project overview on YouTube](https://youtu.be/T9x2bFZeyuE)
+
 A reusable business-discovery and market-intelligence system. It finds small businesses (dealers, importers, installers, retailers, wholesalers, contractors) in the places you sell, so a sales team can reach them outside its existing channels. The first industry it is set up for is solar, inverters and batteries in Pakistan; new industries are added from the screens, with no code changes.
 
 | Folder | What it is |
