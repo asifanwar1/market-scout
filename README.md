@@ -55,6 +55,14 @@ cd market-scout-backend && pytest && ruff check .
 cd market-scout && npm run lint && npm test && npm run build
 ```
 
+## Contributing and license
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately as described in [SECURITY.md](SECURITY.md).
+
+Market Scout is released under the [GNU Affero General Public License v3.0](LICENSE). You can use, study, change and share it freely. If you run a modified version as a network service, you must offer its source code to the users of that service under the same license.
+
+The code's license does not cover the data it can fetch. OpenStreetMap, Overture Maps, Foursquare, Google Places, HERE and TomTom each have their own terms, which you must follow.
+
 ## Where to read next
 
 - [market-scout-backend/README.md](market-scout-backend/README.md): setup, configuration, roles, how runs/exports/the sheet/insights work, operating notes, troubleshooting.

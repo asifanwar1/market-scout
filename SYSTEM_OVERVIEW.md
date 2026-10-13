@@ -23,7 +23,7 @@ Finding the right businesses in a market is slow manual work: searching maps, co
 - Upload a **CSV or Excel** file, such as a government certified-installer list, a chamber directory or customs records.
 - The app guesses which column is which, cleans phone numbers (including mobiles that Excel stripped the leading zero from), and runs every row through the same matching, scoring and do-not-contact checks as a search.
 - For lists that only have business names, it can look up missing phone numbers from Overture Maps, but only when exactly one business has the same name in that city. Wrong numbers are treated as worse than no number.
-- Includes a converter for the official Pakistani certified-installer PDF lists, with sample data for 600+ installers.
+- Includes a converter for the official Pakistani certified-installer PDF lists, with a small fictional sample list to try the Imports screen.
 
 ### 3. Merge and score leads
 - Results from different sources are merged into **one lead per business** (same website, same phone with a similar name, or the same spot with a near-identical name).

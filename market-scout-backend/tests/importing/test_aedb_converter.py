@@ -79,9 +79,7 @@ SAMPLES = Path(__file__).resolve().parents[2] / "sample_data"
 @pytest.mark.parametrize(
     "filename, companies, known",
     [
-        ("aedb-certified-installers-c3.csv", 273, "Salim Winding Works"),
-        ("ppib-certified-installers-c1.csv", 210, "Sky Electric (Private) Limited"),
-        ("ppib-certified-installers-c2.csv", 128, "Royal Solar Energy (Private) Limited"),
+        ("sample-installers.csv", 24, "Sunrise Solar Solutions (Sample 01)"),
     ],
 )
 def test_each_converted_installer_list_has_clean_rows_ready_for_the_imports_screen(filename, companies, known):
